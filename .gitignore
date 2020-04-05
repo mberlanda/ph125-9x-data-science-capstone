@@ -1,3 +1,6 @@
 packrat/lib*/
 packrat/src/
 .Rproj.user
+
+# MovieLens data
+ml-10M100K/
