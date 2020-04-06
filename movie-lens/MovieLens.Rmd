@@ -3,28 +3,69 @@ title: "MovieLens"
 author: "Mauro Berlanda"
 date: "4/5/2020"
 output: pdf_document
+sansfont: Calibri Light
+urlcolor: blue
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+<!-- http://rmarkdown.rstudio.com -->
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+## Introduction/Overview/Executive Summary
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+<!-- an introduction/overview/executive summary section that describes the dataset and summarizes the goal of the project and key steps that were performed -->
 
-```{r cars}
-summary(cars)
+The goal of this project is to develop an algorithm to predict movie ratings.
+
+This analysis is performed on ([MovieLens](https://grouplens.org/datasets/movielens/10m/)) dataset. It contains 10 millions ratings and 100 000 tags applications applied to 10 000 movies by 72 000 users.
+
+```{r data, include=FALSE}
+# The following lines assume that you run the MovieLens.R script before
+# compiling the markdown. Dumping some intermediary data structures will allow
+# to make the md compilation lighter
+
+require(tidyverse)
+require(caret)
+require(data.table)
+load("movie-data.rda")
 ```
 
-## Including Plots
+After downloading the entire dataset, two dataframes are created:
 
-You can also embed plots, for example:
+* `edx` which is used to perform the analysis and develop the algorithm to predict ratings
+* `validation` which contains the true values of the predictions
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+
+```{r edx, echo=TRUE}
+dim(edx)
+dim(validation)
+colnames(edx)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+The key steps required to identify an optimal solution are:
+
+  * todo
+  * create a train and a validation set
+  * explore the content of the train set
+  * another step
+
+
+## Method/Analysis
+
+<!--  a methods/analysis section that explains the process and techniques used, including data cleaning, data exploration and visualization, insights gained, and your modeling approach -->
+
+```{r ratings}
+boxplot(edx$rating)
+title("Ratings distribution in edx train set")
+summary(edx$rating)
+```
+
+## Results
+
+<!-- a results section that presents the modeling results and discusses the model performance -->
+
+## Conclusion
+
+<!-- a conclusion section that gives a brief summary of the report, its limitations and future work -->

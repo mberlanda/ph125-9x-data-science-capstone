@@ -43,3 +43,18 @@ removed <- anti_join(temp, validation)
 edx <- rbind(edx, removed)
 
 rm(dl, ratings, movies, test_index, temp, movielens, removed)
+
+################################
+# Explore the dataset
+################################
+
+# Store edx and validation in data files to make them
+# available for the Rmd report
+save(edx, validation, file = "movie-lens/movie-data.rda")
+
+# edx colnames, number of rows and columns
+colnames(edx)
+dim(edx)
+
+
+
