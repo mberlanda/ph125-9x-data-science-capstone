@@ -26,9 +26,11 @@ This analysis is performed on ([MovieLens](https://grouplens.org/datasets/moviel
 # compiling the markdown. Dumping some intermediary data structures will allow
 # to make the md compilation lighter
 
-require(tidyverse)
-require(caret)
-require(data.table)
+library(knitr)
+library(tidyverse)
+library(caret)
+library(data.table)
+library(gridExtra)
 load("movie-data.rda")
 ```
 
@@ -36,7 +38,6 @@ After downloading the entire dataset, two dataframes are created:
 
 * `edx` which is used to perform the analysis and develop the algorithm to predict ratings
 * `validation` which contains the true values of the predictions
-
 
 ```{r edx, echo=TRUE}
 dim(edx)
@@ -56,10 +57,80 @@ The key steps required to identify an optimal solution are:
 
 <!--  a methods/analysis section that explains the process and techniques used, including data cleaning, data exploration and visualization, insights gained, and your modeling approach -->
 
-```{r ratings}
-boxplot(edx$rating)
-title("Ratings distribution in edx train set")
-summary(edx$rating)
+The process of this analysis includes data wrangling, data exploration and the description of the modeling approach.
+
+### Data Wrangling/Cleaning
+
+The `edx` and `validation` are the result of some manipulation on a downloaded dataset from `grouplens.org`.
+
+1. download the zip file in a temporary directory and unzip it into the workspace directory
+2. read the raw data from two `.dat` files creating `ratings` and `movies` dataframes
+3. normalize column names and cast value as `numeric` and `character`, then join both datasets into the `movielens` dataframe
+4. partition the data in `movielens` to create a train test used for developing the model (`edx`, 90%) and the true values used to calculate the RMSE of the final model (`validation`, 10%)
+5. ensure that userId and movieId in validation set are also in edx set
+
+Instead of using all the known observations from `edx` dataset, we create a `train_set` and a `test_set` to continue this analysis as follows:
+
+```{r test_train_sets, eval=FALSE}
+set.seed(17, sample.kind="Rounding")
+test_index <- createDataPartition(y = edx$rating, times = 1, p = 0.1, list = FALSE)
+train_set <- edx[-test_index,]
+temp <- edx[test_index,]
+
+# Ensure that userId and movieId in the test_set are included in the train_set
+test_set <- temp %>% 
+  semi_join(train_set, by = "movieId") %>%
+  semi_join(train_set, by = "userId")
+
+removed <- anti_join(temp, test_set)
+train_set <- rbind(train_set, removed)
+```
+
+We perform our analysis unsing `train_set` and we validate it with `test_set`.
+
+### Data Exploration
+
+```{r load-explore-data, include = FALSE}
+load("./data/explore-dataset.rda")
+```
+
+Since our goal is to predict ratings, we start looking at the overall ratings distribution in the `train_set` dataset.
+
+```{r ratings_distribution, echo = FALSE}
+p_rating_distribution
+t_rating_summary
+```
+We notice that whole star ratings are predominant compares to half star rating.
+
+The features we may use in our analysis:
+```{r features, echo = TRUE}
+setdiff(colnames(edx), c("rating", "title"))
+```
+
+
+The ratings breakdown by top 10 `genres` is:
+```{r ratings_by_genre, echo = FALSE}
+t_ratings_by_genre %>% head(10) %>% kable
+```
+
+Comparing the distribution of rating by `movieId` and by `userId`
+
+```{r movie_user_dist, echo = FALSE}
+grid.arrange(
+  grobs = list(
+    p_bi+coord_flip() + scale_color_hue(),
+    p_bu+coord_flip()
+  ), ncol = 2, as.table = FALSE
+)
+```
+
+> Investigating patterns based on timestamp seems to be too much expensive for
+> my machine CPU. If the analysis will require it, it may be interesting to 
+> analyse some patterns like: year, week of year, day of year, day of week
+
+Out of curiosity, the 10 most rated movies are:
+```{r most10_rated_movies, echo = FALSE}
+t_most10_rated_movies %>% kable()
 ```
 
 ## Results
