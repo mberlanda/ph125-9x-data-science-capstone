@@ -261,19 +261,111 @@ rm(
 # Modeling
 ################################
 
-train_x <- train_set %>% select(-rating)
-train_y <- train_set$rating
-
 # Normalize outcome
-normalizeOutcome <- function(x) { ceiling(x*2) }
+normalizeOutcome <- function(x) { ceiling(x*2)/2 }
 
 # Regression tree model
+library(rpart)
 y <- test_set$rating
-rt_model <- rpart(rating ~ ., data = train_set)
+rt_model <- rpart(rating ~ userId+movieId+genres, data = train_set)
 rt_y_hat <- predict(rt_model, test_set)
 
 rt_accuracy <- mean(normalizeOutcome(rt_y_hat) == test_set$rating)
 save(
   rt_model,
+  rt_accuracy,
   file = "movie-lens/data/model-regression-tree.rda"
+)
+
+# Random Forrest
+# if(!require(randomForest)) install.packages("randomForest")
+# library(randomForest)
+# rf_model <- randomForest(rating~userId+movieId+genres, data = train_set, max_nodes = 10)
+# 
+# # Error: vector memory exhausted (limit reached?)
+
+# 
+
+train_x <- train_set %>% select(userId, movieId, genres) # %>%
+#  mutate(userId = factor(userId), movieId = factor(movieId))
+train_y <- factor(train_set$rating)
+
+test_x
+
+# 12 LDA and QDA model
+train_lda <- train(train_x, train_y, method = "lda")
+lda_preds <- predict(train_lda, test_x)
+mean(lda_preds == test_y)
+
+save(
+  train_lda,
+  file = "movie-lens/data/model-lda.rda"
+)
+
+
+train_qda <- train(train_x, train_y, method = "qda")
+qda_preds <- predict(train_qda, test_x)
+mean(qda_preds == test_y)
+
+save(
+  train_qda,
+  file = "movie-lens/data/model-qda.rda"
+)
+
+# 11 Logistic regression model
+train_glm <- train(train_x, train_y, method = "glm")
+glm_preds <- predict(train_glm, test_x)
+mean(glm_preds == test_y)
+
+save(
+  train_glm,
+  file = "movie-lens/data/model-glm.rda"
+)
+ 
+# 13 Loess model
+library(gam)
+
+set.seed(3, sample.kind = "Rounding")
+train_loess <- train(train_x, train_y, method = "gamLoess")
+loess_preds <- predict(train_loess, test_x)
+mean(loess_preds == test_y)
+
+save(
+  train_loess,
+  file = "movie-lens/data/model-loess.rda"
+)
+
+
+# 14 K-nearest neighbors model
+set.seed(7, sample.kind = "Rounding")
+train_knn <- train(
+  train_x, train_y,
+  method = "knn",
+  tuneGrid = data.frame(k = seq(3,21,2))
+)
+
+train_knn$bestTune
+
+knn_preds <- predict(train_knn, test_x) 
+# knn_preds <- predict(train_knn$finalModel, test_x)
+# knn_preds <- ifelse(knn_preds[,1] >= .5, "B", "M") %>% factor(levels(test_y))
+mean(knn_preds == test_y)
+
+save(
+  train_knn,
+  file = "movie-lens/data/train_knn.rda"
+)
+
+# 15 Random Forest
+set.seed(9, sample.kind = "Rounding")
+train_rf <- train(
+  train_x, train_y,
+  method = "rf",
+  tuneGrid = data.frame(mtry = seq(3,9,2)),
+  importance = TRUE
+)
+
+save(
+  train_rf,
+  file = "movie-lens/data/train_rf.rda"
 )
