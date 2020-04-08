@@ -136,16 +136,88 @@ train_set %>% group_by(movieId, title) %>%
 #   arrange(desc(count))
 # t_ratings_by_genre
 
+# Proof of concept of the following code
+#
+# tibble(g = c("a", "a", "a|b", "b"), r = c(5, 3, 1, 2)) %>%
+#   group_by(g) %>% summarise(n = n(), tmp = sum(r)) %>%
+#   separate_rows(g, sep = "\\|") %>%
+#   group_by(g) %>% 
+#   summarise(count = sum(n), avg = sum(tmp)/sum(n))
+#
+
 t_ratings_by_genre <- train_set %>%
   group_by(genres) %>%
-  summarize(count = n()) %>%
-  arrange(desc(count))
-
-t_ratings_by_genre <- t_ratings_by_genre %>%
+  summarize(n = n(), tmp = sum(rating)) %>%
   separate_rows(genres, sep = "\\|") %>%
   group_by(genres) %>%
-  summarize(count = sum(count)) %>%
+  summarize(count = sum(n), avg = sum(tmp)/sum(n)) %>%
   arrange(desc(count))
+t_ratings_by_genre
+
+p_ratings_by_genre <- t_ratings_by_genre %>%
+  ggplot(aes(x = genres, group=1)) +
+  # geom_line(aes(y = avg), linetype = "dashed") +
+  geom_histogram(aes(y = count), stat = "identity", color = "#b2aa8e", fill = "#b2aa8e", alpha = 0.3) +
+  geom_line(aes(y = (max(t_ratings_by_genre$count)/5)*avg), linetype = "dashed") +
+  scale_y_continuous(sec.axis = sec_axis(~./(max(t_ratings_by_genre$count)/5), name = "Average rating")) +
+  ggtitle("Ratings by Genres") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+p_ratings_by_genre
+
+# Visualize the distribution by timestamp
+if(!require(lubridate)) install.packages("lubridate")
+parsed_datetimes <- train_set %>% 
+  select(rating, timestamp) %>%
+  mutate(datetime = as_datetime(timestamp)) %>%
+  select(rating, datetime)
+#  eb5e55-540d6e-88a2aa-e3d7ff-b2aa8e
+t_ratings_by_year <- parsed_datetimes %>%
+  group_by(year = year(datetime)) %>% summarise(count = n(), avg = mean(rating))
+t_ratings_by_year
+
+p_ratings_by_year <- t_ratings_by_year %>%
+  ggplot(aes(x = year)) +
+  geom_histogram(aes(y = count), stat = "identity", color = "#eb5e55", fill = "#eb5e55", alpha = 0.3) +
+  geom_line(aes(y = (max(t_ratings_by_year$count)/5)*avg), linetype = "dashed") +
+  scale_y_continuous(sec.axis = sec_axis(~./(max(t_ratings_by_year$count)/5), name = "Average rating")) +
+  ggtitle("Ratings by year")
+p_ratings_by_year
+
+t_ratings_by_month <- parsed_datetimes %>%
+  group_by(month = month(datetime, label=TRUE)) %>% summarise(count = n(), avg = mean(rating))
+t_ratings_by_month
+
+p_ratings_by_month <- t_ratings_by_month %>%
+  ggplot(aes(x = month, group=1)) +
+  geom_histogram(aes(y = count), stat = "identity", color = "#540d6e", fill = "#540d6e", alpha = 0.3) +
+  geom_line(aes(y = (max(t_ratings_by_month$count)/5)*avg), linetype = "dashed") +
+  scale_y_continuous(sec.axis = sec_axis(~./(max(t_ratings_by_month$count)/5), name = "Average rating")) +
+  ggtitle("Ratings by month")
+p_ratings_by_month
+
+t_ratings_by_week <- parsed_datetimes %>%
+  group_by(week = week(datetime)) %>% summarise(count = n(), avg = mean(rating))
+t_ratings_by_week
+
+p_ratings_by_week <- t_ratings_by_week %>%
+  ggplot(aes(x = week)) +
+  geom_histogram(aes(y = count), stat = "identity", color = "#88a2aa", fill = "#88a2aa", alpha = 0.3) +
+  geom_line(aes(y = (max(t_ratings_by_week$count)/5)*avg), linetype = "dashed") +
+  scale_y_continuous(sec.axis = sec_axis(~./(max(t_ratings_by_week$count)/5), name = "Average rating")) +
+  ggtitle("Ratings by week")
+p_ratings_by_week
+
+# day of week
+t_ratings_by_wday <- parsed_datetimes %>%
+  group_by(wday = wday(datetime, label=TRUE)) %>% summarise(count = n(), avg = mean(rating))
+t_ratings_by_wday
+p_ratings_by_wday <- t_ratings_by_wday %>%
+  ggplot(aes(x = wday, group=1)) +
+  geom_histogram(aes(y = count), stat = "identity", color = "#e3d7ff", fill = "#e3d7ff", alpha = 0.5) +
+  geom_line(aes(y = (max(t_ratings_by_wday$count)/5)*avg), linetype = "dashed") +
+  scale_y_continuous(sec.axis = sec_axis(~./(max(t_ratings_by_wday$count)/5), name = "Average rating")) +
+  ggtitle("Ratings by week day")
+p_ratings_by_wday
 
 # Dump data to be reused in the Rmd without involving too many calculations
 save(
@@ -153,6 +225,55 @@ save(
   t_rating_summary,
   p_bi, p_bu,
   t_most10_rated_movies,
+  p_ratings_by_genre,
   t_ratings_by_genre,
+  p_ratings_by_year,
+  p_ratings_by_month,
+  p_ratings_by_week,
+  p_ratings_by_wday,
+  t_ratings_by_genre,
+  t_ratings_by_year,
+  t_ratings_by_month,
+  t_ratings_by_week,
+  t_ratings_by_wday,
+  
   file = "movie-lens/data/explore-dataset.rda"
+)
+
+rm(
+  p_rating_distribution,
+  t_rating_summary,
+  p_bi, p_bu,
+  t_most10_rated_movies,
+  t_ratings_by_genre,
+  p_ratings_by_year,
+  t_ratings_by_year,
+  p_ratings_by_month,
+  t_ratings_by_month,
+  p_ratings_by_week,
+  t_ratings_by_week,
+  p_ratings_by_wday,
+  t_ratings_by_wday,
+  parsed_datetimes
+)
+
+################################
+# Modeling
+################################
+
+train_x <- train_set %>% select(-rating)
+train_y <- train_set$rating
+
+# Normalize outcome
+normalizeOutcome <- function(x) { ceiling(x*2) }
+
+# Regression tree model
+y <- test_set$rating
+rt_model <- rpart(rating ~ ., data = train_set)
+rt_y_hat <- predict(rt_model, test_set)
+
+rt_accuracy <- mean(normalizeOutcome(rt_y_hat) == test_set$rating)
+save(
+  rt_model,
+  file = "movie-lens/data/model-regression-tree.rda"
 )

@@ -1,5 +1,5 @@
 ---
-title: "MovieLens"
+title: "MovieLens Analysis"
 author: "Mauro Berlanda"
 date: "4/5/2020"
 output: pdf_document
@@ -8,7 +8,7 @@ urlcolor: blue
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, cache = TRUE, fig.align = 'center') 
 ```
 
 <!-- http://rmarkdown.rstudio.com -->
@@ -21,7 +21,7 @@ The goal of this project is to develop an algorithm to predict movie ratings.
 
 This analysis is performed on ([MovieLens](https://grouplens.org/datasets/movielens/10m/)) dataset. It contains 10 millions ratings and 100 000 tags applications applied to 10 000 movies by 72 000 users.
 
-```{r data, include=FALSE}
+```{r data, include=FALSE, cache=FALSE}
 # The following lines assume that you run the MovieLens.R script before
 # compiling the markdown. Dumping some intermediary data structures will allow
 # to make the md compilation lighter
@@ -39,7 +39,7 @@ After downloading the entire dataset, two dataframes are created:
 * `edx` which is used to perform the analysis and develop the algorithm to predict ratings
 * `validation` which contains the true values of the predictions
 
-```{r edx, echo=TRUE}
+```{r edx}
 dim(edx)
 dim(validation)
 colnames(edx)
@@ -47,11 +47,12 @@ colnames(edx)
 
 The key steps required to identify an optimal solution are:
 
-  * todo
-  * create a train and a validation set
-  * explore the content of the train set
-  * another step
-
+  * create a train and a test set partition out of `edx` dataset to start and validate the analysis
+  * explore the content of `train_set` and visualize the distribution of the outcome (`rating`) by every feature
+  * use `train_set` implement several prediction models (see Method/Analysis section for details)
+  * run models and ensembles against `test_set`
+  * evaluate the accuracy and the RMSE of each solution based on `test_set` (see Result for the output)
+  * report the RMSE against the true values to complete the exercise
 
 ## Method/Analysis
 
@@ -88,34 +89,35 @@ train_set <- rbind(train_set, removed)
 
 We perform our analysis unsing `train_set` and we validate it with `test_set`.
 
-### Data Exploration
+### Data Exploration and Insights
 
-```{r load-explore-data, include = FALSE}
+```{r load-explore-data, include=FALSE}
 load("./data/explore-dataset.rda")
 ```
 
 Since our goal is to predict ratings, we start looking at the overall ratings distribution in the `train_set` dataset.
 
-```{r ratings_distribution, echo = FALSE}
+```{r ratings_distribution, echo=FALSE, cache=TRUE, out.height='30%'}
 p_rating_distribution
 t_rating_summary
 ```
 We notice that whole star ratings are predominant compares to half star rating.
 
 The features we may use in our analysis:
-```{r features, echo = TRUE}
+```{r features}
 setdiff(colnames(edx), c("rating", "title"))
 ```
 
 
 The ratings breakdown by top 10 `genres` is:
-```{r ratings_by_genre, echo = FALSE}
+```{r ratings_by_genre, echo=FALSE, cache=TRUE, out.height='30%'}
 t_ratings_by_genre %>% head(10) %>% kable
+p_ratings_by_genre
 ```
 
 Comparing the distribution of rating by `movieId` and by `userId`
 
-```{r movie_user_dist, echo = FALSE}
+```{r movie_user_dist, echo=FALSE, out.height= '25%'}
 grid.arrange(
   grobs = list(
     p_bi+coord_flip() + scale_color_hue(),
@@ -124,14 +126,69 @@ grid.arrange(
 )
 ```
 
-> Investigating patterns based on timestamp seems to be too much expensive for
-> my machine CPU. If the analysis will require it, it may be interesting to 
-> analyse some patterns like: year, week of year, day of year, day of week
+Comparing the distribution by the `timestamp`, even if the rating count varies somehow over the time, the average rating seems quite constant.
+
+```{r timestamp_dist, echo=FALSE, out.height='40%'}
+grid.arrange(
+  grobs = list(
+    p_ratings_by_year,
+    p_ratings_by_month,
+    p_ratings_by_week,
+    p_ratings_by_wday
+  ), ncol = 2, as.table = FALSE
+)
+```
+
+We can clearly see that on average ratings is costant across the `month` and the `wday`.
+There is some seasonality in the reviews distribution, with a majority of ratings given in the last
+quarter of the year.
+
+> This data exploration has been done within the limits of my machine capacity (especially in CPU)
+> More powerful machines can help to find out more advanced patterns.
+> In particular I would have plotted ratings by userId and movieId, extracted the movie year and visualize its impact.
 
 Out of curiosity, the 10 most rated movies are:
-```{r most10_rated_movies, echo = FALSE}
+```{r most10_rated_movies, echo=FALSE}
 t_most10_rated_movies %>% kable()
 ```
+
+### Modeling
+
+In the first data exploration we could not find identify a single feature allowing to predict clearly.
+
+This *classification* problem should give as outcome 10 possible ratings:
+```{r outcomes}
+seq(0.5, 5, 0.5)
+```
+
+We will allow to predict a continous outcoime to make any ensemble more accurate.
+To transform any prediction to one of the allowed ratings we can just use the following formula
+
+```{r ceiling, eval=FALSE}
+n <- 2.7
+ceiling(n*2)/2
+```
+
+In _HarvardX: PH125.8x_ we have seen that if we want to handle more than two features we can use regression trees or random forrest.
+
+Running a regression tree on all these dimensions was not really helpful:
+
+```{r regression_tree, eval=FALSE }
+# Regression tree model
+rt_model <- rpart(rating ~ ., data = train_set)
+plot(rt_model, margin = 0.1)
+text(rt_model, cex = 0.75)
+
+# Warning message:
+# In labels.rpart(x, minlength = minlength) :
+#   more than 52 levels in a predicting factor, truncated for printout
+```
+
+
+Models such as logistic_regression, lda, qda, loess, knn perform better with at maximum two features.
+Instead of * against each feature and evaluate the accuracy
+* against every two features and evaluate the accuray
+
 
 ## Results
 

@@ -7,3 +7,5 @@ packrat/src/
 # MovieLens data
 ml-10M100K/
 movie-lens/*.rda
+movie-lens/MovieLens_cache/
+movie-lens/MovieLens_files/
