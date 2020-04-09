@@ -1,7 +1,7 @@
 ---
-title: "MovieLens Analysis"
+title: "Harvard PH125.9x Capstone: MovieLens Analysis"
 author: "Mauro Berlanda"
-date: "4/5/2020"
+date: "April 2020"
 output: pdf_document
 sansfont: Calibri Light
 urlcolor: blue
@@ -39,20 +39,42 @@ After downloading the entire dataset, two dataframes are created:
 * `edx` which is used to perform the analysis and develop the algorithm to predict ratings
 * `validation` which contains the true values of the predictions
 
-```{r edx}
-dim(edx)
-dim(validation)
-colnames(edx)
+The original datasets provided by the exercise are:
+```{r edx, echo=FALSE}
+t_specifications$edx %>% kable(caption = "Default summary for edx dataframe")
+t_specifications$validation %>% kable(caption = "Default summary for validation dataframe")
+edx_head %>% kable(caption = "Head of edx dataframe")
+edx_summary %>% kable(caption = "Summary of edx dataframe")
 ```
+
+The greatest challenge in analysing these data is their volume. The most of the built-in models distributed via [caret](https://topepo.github.io/caret) will simply run out of memory.
+
+This dataset was already used for a test regarding date parsing in the module [HarvardX: PH125.6x Data Science: Wrangling](https://courses.edx.org/courses/course-v1:HarvardX+PH125.6x+1T2020/course/).
+The module [HarvardX: PH125.8x Data Science: Machine Learning](https://courses.edx.org/courses/course-v1:HarvardX+PH125.8x+1T2020/course/) illustrated two important concept using this dataset:
+
+* [Recommendation systems](https://rafalab.github.io/dsbook/large-datasets.html#recommendation-systems): use ratings that users have already given to some items in order to make specific recommandations
+* [Regularization](https://rafalab.github.io/dsbook/large-datasets.html#regularization): add information in order to solve an ill-posed problem or to prevent overfitting
+
 
 The key steps required to identify an optimal solution are:
 
+  * prepare the data for the analysis (normalize some columns, extract new features to prepare the analysis)
   * create a train and a test set partition out of `edx` dataset to start and validate the analysis
   * explore the content of `train_set` and visualize the distribution of the outcome (`rating`) by every feature
   * use `train_set` implement several prediction models (see Method/Analysis section for details)
   * run models and ensembles against `test_set`
   * evaluate the accuracy and the RMSE of each solution based on `test_set` (see Result for the output)
-  * report the RMSE against the true values to complete the exercise
+  * report the RMSE against the true values to complete the exercise (RMSE < 0.86490 required)
+
+The quality of the prediction is evaluated using the root mean squared error (RMSE):
+
+$$\mbox{RMSE} = \sqrt{\frac{1}{N} \sum_{i}^{} \left( \hat{y}_{i} - y_{i} \right)^2 }$$
+
+```{r rmse, evaluate=FALSE}
+RMSE <- function(true_ratings, predicted_ratings){
+    sqrt(mean((true_ratings - predicted_ratings)^2))
+  }
+```
 
 ## Method/Analysis
 
@@ -70,9 +92,66 @@ The `edx` and `validation` are the result of some manipulation on a downloaded d
 4. partition the data in `movielens` to create a train test used for developing the model (`edx`, 90%) and the true values used to calculate the RMSE of the final model (`validation`, 10%)
 5. ensure that userId and movieId in validation set are also in edx set
 
+```{r data_gathering, eval=FALSE}
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+
+# MovieLens 10M dataset:
+# https://grouplens.org/datasets/movielens/10m/
+# http://files.grouplens.org/datasets/movielens/ml-10m.zip
+
+dl <- tempfile()
+download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+
+ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
+                 col.names = c("userId", "movieId", "rating", "timestamp"))
+
+movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
+colnames(movies) <- c("movieId", "title", "genres")
+movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(levels(movieId))[movieId],
+                                           title = as.character(title),
+                                           genres = as.character(genres))
+
+movielens <- left_join(ratings, movies, by = "movieId")
+
+# Validation set will be 10% of MovieLens data
+set.seed(1, sample.kind="Rounding")
+test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+edx <- movielens[-test_index,]
+temp <- movielens[test_index,]
+
+# Make sure userId and movieId in validation set are also in edx set
+validation <- temp %>% 
+  semi_join(edx, by = "movieId") %>%
+  semi_join(edx, by = "userId")
+
+# Add rows removed from validation set back into edx set
+removed <- anti_join(temp, validation)
+edx <- rbind(edx, removed)
+
+rm(dl, ratings, movies, test_index, temp, movielens, removed)
+```
+
+Before starting the analysis, we are going to prepare the data for the analysis:
+
+```{r data_wrangling, eval=FALSE}
+wrangle_data <-function(ds) {
+  ds %>%
+    mutate(
+      userId = factor(userId), # int to factor
+      movieId = factor(movieId), # num to factor
+      datetime = as_datetime(timestamp), # parse int into date
+      movieYear = str_sub(title,-5,-2), # extract movieYear from title (xxxx),
+      reviewYear = factor(year(datetime)),
+      reviewWeek = factor(week(datetime))
+    )
+}
+```
+
 Instead of using all the known observations from `edx` dataset, we create a `train_set` and a `test_set` to continue this analysis as follows:
 
-```{r test_train_sets, eval=FALSE}
+```{r test_train_sets, messages=FALSE}
 set.seed(17, sample.kind="Rounding")
 test_index <- createDataPartition(y = edx$rating, times = 1, p = 0.1, list = FALSE)
 train_set <- edx[-test_index,]
@@ -85,50 +164,146 @@ test_set <- temp %>%
 
 removed <- anti_join(temp, test_set)
 train_set <- rbind(train_set, removed)
+
+rm(test_index, temp, removed)
 ```
 
 We perform our analysis unsing `train_set` and we validate it with `test_set`.
 
 ### Data Exploration and Insights
 
-```{r load-explore-data, include=FALSE}
-load("./data/explore-dataset.rda")
+The features we may use in our analysis:
+```{r features}
+setdiff(colnames(edx), c("rating", "title", "timestamp"))
 ```
 
 Since our goal is to predict ratings, we start looking at the overall ratings distribution in the `train_set` dataset.
 
 ```{r ratings_distribution, echo=FALSE, cache=TRUE, out.height='30%'}
-p_rating_distribution
-t_rating_summary
-```
-We notice that whole star ratings are predominant compares to half star rating.
+p_rating_distribution_by_year <- train_set %>% group_by(reviewYear, rating) %>% count() %>% 
+  ggplot(aes(x=reviewYear)) +
+  geom_bar(aes(y=n, fill = factor(rating)), stat ="identity", alpha = 0.5) +
+  geom_vline(xintercept = "2003", color = "red", linetype = "dashed") +
+  ggtitle("Train set ratings distribution by reviewYear") 
 
-The features we may use in our analysis:
-```{r features}
-setdiff(colnames(edx), c("rating", "title"))
-```
+p_rating_distribution <- train_set %>% group_by(rating) %>% count() %>% 
+  as_tibble() %>% mutate(half = factor((rating * 2) %% 2), rating = factor(rating)) %>%
+  ggplot(aes(x=rating, y=n, color=half, fill = half)) +
+  geom_bar(stat ="identity", alpha = 0.3) + 
+  ggtitle("Overall train set ratings distribution") +
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position = "none")
 
+p_rating_2003_distribution <- train_set %>% group_by(rating, reviewYear) %>% count() %>% 
+  filter(as.numeric(levels(reviewYear)[reviewYear]) >= 2003) %>% as_tibble() %>%
+  group_by(rating) %>% summarize(n = sum(n)) %>%
+  mutate(half = factor((rating * 2) %% 2), rating = factor(rating)) %>%
+  select(rating, n, half) %>%
+  ggplot(aes(x=rating, y=n, color=half, fill = half)) +
+  geom_bar(stat ="identity", alpha = 0.3) + 
+  ggtitle("Train set ratings distribution (2003-)") +
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position = "none")
 
-The ratings breakdown by top 10 `genres` is:
-```{r ratings_by_genre, echo=FALSE, cache=TRUE, out.height='30%'}
-t_ratings_by_genre %>% head(10) %>% kable
-p_ratings_by_genre
-```
+ratingByMovieYear <- train_set %>% group_by(movieYear) %>% count() %>% mutate(perc = round(n/nrow(train_set), digits = 3))
+ratingByMovieYear <- ratingByMovieYear %>%
+  add_column(cumsum = cumsum(ratingByMovieYear$perc)) %>%
+  add_column(nMovieYear = as.numeric(ratingByMovieYear$movieYear))
 
-Comparing the distribution of rating by `movieId` and by `userId`
+p_ratings_by_movie_year <- ratingByMovieYear %>%
+  ggplot(aes(x=movieYear, group=1)) +
+  geom_bar(aes(y=perc, fill = factor(nMovieYear/10)), stat ="identity", alpha = 0.3) + 
+  geom_line(aes(y = (max(ratingByMovieYear$perc)*cumsum)), linetype = "dashed") +
+  scale_y_continuous(sec.axis = sec_axis(~./max(ratingByMovieYear$perc), name = "Cumsum")) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position = "none") + 
+  ggtitle("Train set ratings distribution by movieYear")
 
-```{r movie_user_dist, echo=FALSE, out.height= '25%'}
+ratingAvgByMovieYear <- train_set %>% group_by(movieYear) %>% summarize(avg=mean(rating)) 
+p_ratings_avg_by_movie_year <- ratingAvgByMovieYear %>% 
+  ggplot(aes(x=movieYear, y=avg, group=1)) +
+  geom_line() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  ggtitle("Train set ratings average by movieYear")
+
+summary(train_set$rating)
 grid.arrange(
   grobs = list(
-    p_bi+coord_flip() + scale_color_hue(),
-    p_bu+coord_flip()
+    p_rating_distribution,
+    p_rating_2003_distribution
   ), ncol = 2, as.table = FALSE
 )
-```
 
-Comparing the distribution by the `timestamp`, even if the rating count varies somehow over the time, the average rating seems quite constant.
+p_rating_distribution_by_year
+
+grid.arrange(
+  grobs = list(
+    p_ratings_by_movie_year,
+    p_ratings_avg_by_movie_year
+  ), ncol = 2, as.table = FALSE
+)
+
+summary(ratingAvgByMovieYear)
+rm(
+  p_rating_distribution_by_year, p_rating_distribution, p_rating_2003_distribution,
+  ratingByMovieYear, ratingAvgByMovieYear, p_ratings_by_movie_year, p_ratings_avg_by_movie_year
+)
+```
+We notice that whole star ratings are predominant compares to half star rating.
+One reason to explain the importance of this difference is that half star ratings have been introduced in 2003.
+We can also see that a movie is more likely to receive a rating if it was shot between the early 90s and 2000s.
+On average, movies before the 80s tend to have an higher rating.
+
+Breaking down the distribution by the review `timestamp`, even if the rating count varies somehow over the time, the average rating seems quite constant.
 
 ```{r timestamp_dist, echo=FALSE, out.height='40%'}
+t_ratings_by_year <- train_set %>%
+  group_by(year = year(datetime)) %>% summarise(count = n(), avg = mean(rating))
+# t_ratings_by_year
+
+p_ratings_by_year <- t_ratings_by_year %>%
+  ggplot(aes(x = year)) +
+  geom_histogram(aes(y = count), stat = "identity", color = "#eb5e55", fill = "#eb5e55", alpha = 0.3) +
+  geom_line(aes(y = (max(t_ratings_by_year$count)/5)*avg), linetype = "dashed") +
+  scale_y_continuous(sec.axis = sec_axis(~./(max(t_ratings_by_year$count)/5), name = "Average rating")) +
+  ggtitle("Ratings by year")
+p_ratings_by_year
+
+t_ratings_by_month <- train_set %>%
+  group_by(month = month(datetime, label=TRUE)) %>% summarise(count = n(), avg = mean(rating))
+# t_ratings_by_month
+
+p_ratings_by_month <- t_ratings_by_month %>%
+  ggplot(aes(x = month, group=1)) +
+  geom_histogram(aes(y = count), stat = "identity", color = "#540d6e", fill = "#540d6e", alpha = 0.3) +
+  geom_line(aes(y = (max(t_ratings_by_month$count)/5)*avg), linetype = "dashed") +
+  scale_y_continuous(sec.axis = sec_axis(~./(max(t_ratings_by_month$count)/5), name = "Average rating")) +
+  ggtitle("Ratings by month")
+p_ratings_by_month
+
+t_ratings_by_week <- train_set %>%
+  group_by(week = week(datetime)) %>% summarise(count = n(), avg = mean(rating))
+# t_ratings_by_week
+
+p_ratings_by_week <- t_ratings_by_week %>%
+  ggplot(aes(x = week)) +
+  geom_histogram(aes(y = count), stat = "identity", color = "#88a2aa", fill = "#88a2aa", alpha = 0.3) +
+  geom_line(aes(y = (max(t_ratings_by_week$count)/5)*avg), linetype = "dashed") +
+  scale_y_continuous(sec.axis = sec_axis(~./(max(t_ratings_by_week$count)/5), name = "Average rating")) +
+  ggtitle("Ratings by week")
+p_ratings_by_week
+
+# day of week
+t_ratings_by_wday <- train_set %>%
+  group_by(wday = wday(datetime, label=TRUE)) %>% summarise(count = n(), avg = mean(rating))
+# t_ratings_by_wday
+p_ratings_by_wday <- t_ratings_by_wday %>%
+  ggplot(aes(x = wday, group=1)) +
+  geom_histogram(aes(y = count), stat = "identity", color = "#e3d7ff", fill = "#e3d7ff", alpha = 0.5) +
+  geom_line(aes(y = (max(t_ratings_by_wday$count)/5)*avg), linetype = "dashed") +
+  scale_y_continuous(sec.axis = sec_axis(~./(max(t_ratings_by_wday$count)/5), name = "Average rating")) +
+  ggtitle("Ratings by week day")
+p_ratings_by_wday
+
 grid.arrange(
   grobs = list(
     p_ratings_by_year,
@@ -137,32 +312,110 @@ grid.arrange(
     p_ratings_by_wday
   ), ncol = 2, as.table = FALSE
 )
+
+rm(
+    p_ratings_by_year,
+    p_ratings_by_month,
+    p_ratings_by_week,
+    p_ratings_by_wday,
+    t_ratings_by_year,
+    t_ratings_by_month,
+    t_ratings_by_week,
+    t_ratings_by_wday
+)
 ```
 
 We can clearly see that on average ratings is costant across the `month` and the `wday`.
 There is some seasonality in the reviews distribution, with a majority of ratings given in the last
 quarter of the year.
 
-> This data exploration has been done within the limits of my machine capacity (especially in CPU)
-> More powerful machines can help to find out more advanced patterns.
-> In particular I would have plotted ratings by userId and movieId, extracted the movie year and visualize its impact.
+The ratings breakdown by top 10 `genres` is:
+```{r ratings_by_genre, echo=FALSE, cache=TRUE, out.height='30%'}
+# Proof of concept of the following code
+#
+# tibble(g = c("a", "a", "a|b", "b"), r = c(5, 3, 1, 2)) %>%
+#   group_by(g) %>% summarise(n = n(), tmp = sum(r)) %>%
+#   separate_rows(g, sep = "\\|") %>%
+#   group_by(g) %>% 
+#   summarise(count = sum(n), avg = sum(tmp)/sum(n))
+#
+
+t_ratings_by_genre <- train_set %>%
+  group_by(genres) %>%
+  summarize(n = n(), tmp = sum(rating)) %>%
+  separate_rows(genres, sep = "\\|") %>%
+  group_by(genres) %>%
+  summarize(count = sum(n), avg = sum(tmp)/sum(n)) %>%
+  arrange(desc(count))
+
+p_ratings_by_genre <- t_ratings_by_genre %>%
+  ggplot(aes(x = genres, group=1)) +
+  # geom_line(aes(y = avg), linetype = "dashed") +
+  geom_histogram(aes(y = count), stat = "identity", color = "#b2aa8e", fill = "#b2aa8e", alpha = 0.3) +
+  geom_line(aes(y = (max(t_ratings_by_genre$count)/5)*avg), linetype = "dashed") +
+  scale_y_continuous(sec.axis = sec_axis(~./(max(t_ratings_by_genre$count)/5), name = "Average rating")) +
+  ggtitle("Ratings by Genres") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+t_ratings_by_genre %>% head(10) %>% kable(caption = "Top rated movie genres")
+p_ratings_by_genre
+
+rm(t_ratings_by_genre, p_ratings_by_genre)
+```
+
+Comparing the distribution of rating by `movieId` and by `userId`
+
+```{r movie_user_count}
+n_distinct(train_set$movieId)
+n_distinct(train_set$userId)
+```
+
+```{r movie_user_dist, echo=FALSE, out.height= '25%'}
+p_bi <- train_set %>% group_by(movieId) %>% 
+  summarize(b_i = mean(rating)) %>% 
+  ggplot(aes(b_i)) +
+  geom_histogram(bins = 10, color = "#540D6E", fill = "#540D6E", alpha = 0.3) +
+  ggtitle("Train set average rating by movieId")
+
+p_bu <- train_set %>% group_by(userId) %>% 
+  summarize(b_u = mean(rating)) %>% 
+  ggplot(aes(b_u)) +
+  geom_histogram(bins = 10, color = "#EB5E55", fill = "#EB5E55", alpha = 0.3) +
+  ggtitle("Train set average rating by userId")
+
+grid.arrange(
+  grobs = list(
+    p_bi+coord_flip() + scale_color_hue(),
+    p_bu+coord_flip()
+  ), ncol = 2, as.table = FALSE
+)
+
+rm(p_bi, p_bu)
+```
+
 
 Out of curiosity, the 10 most rated movies are:
 ```{r most10_rated_movies, echo=FALSE}
-t_most10_rated_movies %>% kable()
+train_set %>% group_by(movieId, title) %>%
+  summarize(count = n(), avg_rating = mean(rating)) %>%
+  arrange(desc(count))  %>%
+  head(10) %>% kable(caption = "Top rated movies")
 ```
+
+> This data exploration has been done within the limits of my machine capacity
+> More powerful machines can help to find out more advanced patterns.
 
 ### Modeling
 
 In the first data exploration we could not find identify a single feature allowing to predict clearly.
 
-This *classification* problem should give as outcome 10 possible ratings:
+As I first step we tried to solve the problem as a `classification` problem with the following outcomes:
 ```{r outcomes}
 seq(0.5, 5, 0.5)
 ```
 
-We will allow to predict a continous outcoime to make any ensemble more accurate.
-To transform any prediction to one of the allowed ratings we can just use the following formula
+With this result normalization, every result could have been converted to the real values levels:
 
 ```{r ceiling, eval=FALSE}
 n <- 2.7
@@ -184,15 +437,236 @@ text(rt_model, cex = 0.75)
 #   more than 52 levels in a predicting factor, truncated for printout
 ```
 
+Other approaches like randomForrest will just run out of memory.
 
 Models such as logistic_regression, lda, qda, loess, knn perform better with at maximum two features.
-Instead of * against each feature and evaluate the accuracy
-* against every two features and evaluate the accuray
+We may just elect two features or use principal component analysis to define two features.
 
+
+In this report we are modeling the solution taking inspiration from the approach suggested by the [team](http://blog.echen.me/2011/10/24/winning-the-netflix-prize-a-summary/) winning the [Netflix $1 million award](https://bits.blogs.nytimes.com/2009/09/21/netflix-awards-1-million-prize-and-starts-a-new-contest/) in 2009.
+
+The solution suggested was based on two models:
+
+*a. Normalization of global effects*
+
+* consider a baseline rating (overall mean)
+* a user specific effect based on the previous ratings
+* a movie specific effect based on the previous ratings
+* a specific interaction (e.g. I like this movie because a given actor is playing)
+
+*b. Neighborhood Models*
+
+* item-item approach: similar items may receive similar ratings
+* user-user approach: similar users may give similar ratings
+
+In our model we are going to regularize the data using [*penalized least square*](https://rafalab.github.io/dsbook/large-datasets.html#regularization) to constraint the total variability of the effect sizes.
+
+As we can see most of the items have very few ratings:
+
+```{r movie_reviews, echo=TRUE, out.height= '25%'}
+movies_reviews_count <- train_set %>% group_by(movieId) %>% count() %>% as_tibble() %>%
+  group_by(n) %>% count() %>% rename(n_ratings=n, n_movies=nn)
+movies_reviews_count <- movies_reviews_count %>%
+  add_column(cumsum=cumsum(movies_reviews_count$n_movies/sum(movies_reviews_count$n_movies)))
+
+movies_reviews_count %>% head(1000) %>%
+  ggplot(aes(x=n_ratings)) + 
+  geom_histogram(aes(y = n_movies), stat = "identity", alpha = 0.7) +
+  geom_line(aes(y=cumsum * max(movies_reviews_count$n_movies)), linetype = "dashed") +
+  scale_y_continuous(sec.axis = sec_axis(~./max(movies_reviews_count$n_movies), name = "cumsum (%)")) +
+  ggtitle("Number of movies by number of ratings")
+
+rm(movies_reviews_count)
+```
+
+```{r user_reviews, echo=TRUE, out.height= '25%'}
+users_reviews_count <- train_set %>% group_by(movieId) %>% count() %>% as_tibble() %>%
+  group_by(n) %>% count() %>% rename(n_ratings=n, n_users=nn)
+users_reviews_count <- users_reviews_count %>%
+  add_column(cumsum=cumsum(users_reviews_count$n_users/sum(users_reviews_count$n_users)))
+
+users_reviews_count %>% head(1000) %>%
+  ggplot(aes(x=n_ratings)) + 
+  geom_histogram(aes(y = n_users), stat = "identity", alpha = 0.7) +
+  geom_line(aes(y=cumsum * max(users_reviews_count$n_users)), linetype = "dashed") +
+  scale_y_continuous(sec.axis = sec_axis(~./max(users_reviews_count$n_users), name = "cumsum (%)")) +
+  ggtitle("Number of users by number of ratings")
+
+rm(users_reviews_count)
+```
+
+In order to identify the `lambda` parameter (penalty term) to apply to our model, we are going to use the `test_set` we extracted earlier.
+
+> It is important to note that all users and movies both in `test_set` and in `validation` are included
+> by design in the `train_set`. This allows us to stretch the impact of the section b. of the winning
+> algorithm introduced above.
+
+To identify an acceptable solution (RMSE < 0.86490), we first define the `RMSE` function:
+
+```{r rmse_def}
+RMSE <- function(true_ratings, predicted_ratings){
+  sqrt(mean((true_ratings - predicted_ratings)^2))
+}
+
+mu <- mean(train_set$rating)
+```
+
+1. naive approach: use the average
+
+A first naive approach could be just to take the average rating and predict all the results with it:
+
+```{r naive_approach}
+
+predict_model_0 <- function(df) {
+  rep(mu, nrow(df))
+}
+naive_rmse <- RMSE(test_set$rating, predict_model_0(test_set))
+rmse_results <- tibble(method = "Model 0: Average", RMSE = naive_rmse)
+```
+
+2. Introduce the movie effect
+
+```{r movie_effect_fit, eval=FALSE}
+# fit <- lm(rating ~ movieId, data = train_set)
+# Error: vector memory exhausted (limit reached?)
+```
+On a regular machine is not possible to train a linear model on by `movieId`. There are two options:
+
+* reduce the size of the `train_set`
+* avoid using some vendor library and write the model by ourselves
+
+Following the second approach:
+
+```{r movie_effect}
+# regularized movie averages
+reg_movie_avgs <- train_set %>% 
+     group_by(movieId) %>% 
+     summarize(b_i = mean(rating - mu))
+
+ggplot(aes(x=b_i), data=reg_movie_avgs) + geom_histogram(bins=10, alpha=0.8, color="black")
+
+predict_model_1 <- function(df) {
+  mu + df %>% left_join(reg_movie_avgs, by='movieId') %>% .$b_i
+}
+
+model_1_rmse <- RMSE(predict_model_1(test_set), test_set$rating)
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="Model 1: Movie Effect",
+                                     RMSE = model_1_rmse ))
+```
+
+3. Introduce the genres effect -> don't
+
+In the model b was described an item-item approach. In order to group similar movies we may used the `genres`
+column provided in the datasets.
+
+```{r genres_effect}
+## regularized genres averages
+reg_genres_avgs <- train_set %>%     
+    left_join(reg_movie_avgs, by='movieId') %>%
+    group_by(genres) %>% 
+    summarize(b_c = mean(rating - mu - b_i))
+
+ggplot(aes(x=b_c), data=reg_genres_avgs) + geom_histogram(bins=10, alpha=0.8, color="black")
+```
+
+As we can see in the plot, the `genres` effect after the movie effect does not seem to be relevant (affecting the rating only by 10^-17).
+It is not worth to include it in our model.
+
+4. Introduce the movieYear effect -> don't
+
+Another item-item approach could be explored using `movieYear`.
+
+```{r movieYear_effect}
+## regularized movieYear averages
+reg_movieYear_avgs <- train_set %>%     
+    left_join(reg_movie_avgs, by='movieId') %>%
+    group_by(movieYear) %>% 
+    summarize(b_y = mean(rating - mu - b_i))
+
+ggplot(aes(x=b_y), data=reg_movieYear_avgs) + geom_histogram(bins=10, alpha=0.8, color="black")
+```
+
+As we can see in the plot, the `movieYear` effect after the movie effect does not seem to be relevant (affecting the rating only by 10^-17).
+It is not worth to include it in our model.
+
+5. Introduce the userId effect 
+```{r userId}
+## regularized reviewYear averages
+reg_user_avgs <- train_set %>%     
+    left_join(reg_movie_avgs, by='movieId') %>%
+    group_by(userId) %>% 
+    summarize(b_u = mean(rating - mu - b_i))
+
+ggplot(aes(x=b_u), data=reg_user_avgs) + geom_histogram(bins=10, alpha=0.8, color="black")
+
+predict_model_2 <- function(df) {
+  df %>% 
+   left_join(reg_movie_avgs, by='movieId') %>% 
+   left_join(reg_user_avgs, by='userId') %>% 
+   mutate(pred = mu + b_i + b_u) %>% .$pred
+}
+
+model_2_rmse <- RMSE(predict_model_2(test_set), test_set$rating)
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="Model 2: Movie + User Effect",
+                                     RMSE = model_2_rmse )) # 0.8659109
+``` 
+
+6. Introduce the reviewYear and reviewWeek effect
+
+We do not have any element to evaluate a user-user approach. On of the few approaches we can imagine is that at a given moment in the time the people tend to rate in a more similar way.
+
+```{r reviewYear}
+## regularized reviewYear averages
+reg_reviewYear_avgs <- train_set %>%     
+    left_join(reg_movie_avgs, by='movieId') %>%
+    left_join(reg_user_avgs, by='userId') %>%
+    group_by(reviewYear) %>% 
+    summarize(b_y = mean(rating - mu - b_i - b_u))
+
+ggplot(aes(x=b_y), data=reg_reviewYear_avgs) + geom_histogram(bins=10, alpha=0.8, color="black")
+
+reg_reviewWeek_avgs <- train_set %>%     
+    left_join(reg_movie_avgs, by='movieId') %>%
+    left_join(reg_user_avgs, by='userId') %>%
+    left_join(reg_reviewYear_avgs, by='reviewYear') %>% 
+    group_by(reviewWeek) %>% 
+    summarize(b_w = mean(rating - mu - b_i - b_u - b_y))
+
+ggplot(aes(x=b_w), data=reg_reviewWeek_avgs) + geom_histogram(bins=10, alpha=0.8, color="black")
+
+predict_model_3 <- function(df) {
+  df %>% 
+   left_join(reg_movie_avgs, by='movieId') %>% 
+   left_join(reg_user_avgs, by='userId') %>% 
+   left_join(reg_reviewYear_avgs, by='reviewYear') %>% 
+   # left_join(reg_reviewWeek_avgs, by='reviewWeek') %>% 
+   mutate(pred = mu + b_i + b_u + b_y) %>% .$pred
+}
+
+model_3_rmse <- RMSE(predict_model_3(test_set), test_set$rating) # 0.865905
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="Model 3: Movie + User + reviewYearWeek Effect",
+                                     RMSE = model_3_rmse ))
+```
+
+Despite the impact is moderate, taking in consideration also `reviewYear` and `reviewWeek` is slightly improving the RMSE.
+
+7. Identify the optimal penalty rate lambda
+
+<!-- next section to complete -->
 
 ## Results
 
 <!-- a results section that presents the modeling results and discusses the model performance -->
+Let's see the results of the model developed on the `test_set`:
+```{r test_set_rmse}
+#
+RMSE(predict_model_3(validation), validation$rating) 
+rmse_results %>% kable(caption = "RMSE on test_set")
+```
+
 
 ## Conclusion
 

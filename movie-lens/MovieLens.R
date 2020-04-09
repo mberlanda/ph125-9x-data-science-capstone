@@ -47,9 +47,34 @@ rm(dl, ratings, movies, test_index, temp, movielens, removed)
 # Data Wrangling/Cleaning
 ################################
 
+if(!require(lubridate)) install.packages("lubridate")
+if(!require(stringr)) install.packages("stringr")
+
 # Store edx and validation in data files to make them
 # available for the Rmd report
-save(edx, validation, file = "movie-lens/movie-data.rda")
+t_specifications <- tibble(
+  edx = summary.default(edx),
+  validation = summary.default(validation)
+)
+edx_summary <- summary(edx)
+edx_head <- head(edx)
+
+wrangle_data <-function(ds) {
+  ds %>%
+    mutate(
+      userId = factor(userId), # int to factor
+      movieId = factor(movieId), # num to factor
+      datetime = as_datetime(timestamp), # parse int into date
+      movieYear = str_sub(title,-5,-2), # extract movieYear from title (xxxx),
+      reviewYear = factor(year(datetime)),
+      reviewWeek = factor(week(datetime))
+    )
+}
+
+edx <- wrangle_data(edx)
+validation <- wrangle_data(validation)
+
+save(t_specifications, edx_summary, edx_head, edx, validation, file = "movie-lens/movie-data.rda")
 
 # Separate the known observations dataframe into train_set and test_set
 # Test set will be 10% of MovieLens data
@@ -83,6 +108,17 @@ nrow(train_set) + nrow(test_set) == nrow(edx)
 if(!require(gridExtra)) install.packages("gridExtra")
 # Overall rating distribution in train_set  dataframe
 p_rating_distribution <- train_set %>% group_by(rating) %>% count() %>% 
+  as_tibble() %>% mutate(half = factor((rating * 2) %% 2), rating = factor(rating)) %>%
+  ggplot(aes(x=rating, y=n, color=half, fill = half)) +
+  geom_bar(stat ="identity", alpha = 0.3) + 
+  ggtitle("Train set ratings distribution (half star vs whole star ratings fill)") 
+
+p_rating_distribution_by_year <- train_set %>% group_by(reviewYear, rating) %>% count() %>% 
+  ggplot(aes(x=reviewYear)) +
+  geom_bar(aes(y=n, fill = factor(rating)), stat ="identity", alpha = 0.5) +
+  geom_vline(xintercept = "2003", color = "red", linetype = "dashed") +
+  ggtitle("Train set ratings distribution by year (half star ratings since 2003)") 
+  
   as_tibble() %>% mutate(half = factor((rating * 2) %% 2), rating = factor(rating)) %>%
   ggplot(aes(x=rating, y=n, color=half, fill = half)) +
   geom_bar(stat ="identity", alpha = 0.3) + 
@@ -165,7 +201,6 @@ p_ratings_by_genre <- t_ratings_by_genre %>%
 p_ratings_by_genre
 
 # Visualize the distribution by timestamp
-if(!require(lubridate)) install.packages("lubridate")
 parsed_datetimes <- train_set %>% 
   select(rating, timestamp) %>%
   mutate(datetime = as_datetime(timestamp)) %>%
@@ -290,7 +325,6 @@ train_x <- train_set %>% select(userId, movieId, genres) # %>%
 #  mutate(userId = factor(userId), movieId = factor(movieId))
 train_y <- factor(train_set$rating)
 
-test_x
 
 # 12 LDA and QDA model
 train_lda <- train(train_x, train_y, method = "lda")
@@ -334,7 +368,6 @@ save(
   train_loess,
   file = "movie-lens/data/model-loess.rda"
 )
-
 
 # 14 K-nearest neighbors model
 set.seed(7, sample.kind = "Rounding")
