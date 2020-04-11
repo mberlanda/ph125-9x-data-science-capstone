@@ -201,6 +201,12 @@ Source: CRAN
 Version: 0.2.1
 Hash: 78074d895bfaf6e4c1269d9f1f3c398d
 
+Package: gridExtra
+Source: CRAN
+Version: 2.3
+Hash: fa977bc1aab5588a08123b10ceb1ad3d
+Requires: gtable
+
 Package: gtable
 Source: CRAN
 Version: 0.3.0

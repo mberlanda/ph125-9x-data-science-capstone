@@ -13,13 +13,13 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, cache = TRUE, fig.align = 'c
 
 <!-- http://rmarkdown.rstudio.com -->
 
-## Introduction/Overview/Executive Summary
+## Overview
 
 <!-- an introduction/overview/executive summary section that describes the dataset and summarizes the goal of the project and key steps that were performed -->
 
 The goal of this project is to develop an algorithm to predict movie ratings.
 
-This analysis is performed on ([MovieLens](https://grouplens.org/datasets/movielens/10m/)) dataset. It contains 10 millions ratings and 100 000 tags applications applied to 10 000 movies by 72 000 users.
+This analysis is performed on [MovieLens](https://grouplens.org/datasets/movielens/10m/) dataset. It contains 10 millions ratings and 100 000 tags applications applied to 10 000 movies by 72 000 users.
 
 ```{r data, include=FALSE, cache=FALSE}
 # The following lines assume that you run the MovieLens.R script before
@@ -31,6 +31,7 @@ library(tidyverse)
 library(caret)
 library(data.table)
 library(gridExtra)
+library(lubridate)
 load("movie-data.rda")
 ```
 
@@ -47,10 +48,10 @@ edx_head %>% kable(caption = "Head of edx dataframe")
 edx_summary %>% kable(caption = "Summary of edx dataframe")
 ```
 
-The greatest challenge in analysing these data is their volume. The most of the built-in models distributed via [caret](https://topepo.github.io/caret) will simply run out of memory.
+The greatest challenge in analysing these data is their volume. The most of the built-in models distributed via [caret](https://topepo.github.io/caret) package will simply run out of memory.
 
 This dataset was already used for a test regarding date parsing in the module [HarvardX: PH125.6x Data Science: Wrangling](https://courses.edx.org/courses/course-v1:HarvardX+PH125.6x+1T2020/course/).
-The module [HarvardX: PH125.8x Data Science: Machine Learning](https://courses.edx.org/courses/course-v1:HarvardX+PH125.8x+1T2020/course/) illustrated two important concept using this dataset:
+The module [HarvardX: PH125.8x Data Science: Machine Learning](https://courses.edx.org/courses/course-v1:HarvardX+PH125.8x+1T2020/course/) illustrated two important concepts using `movielens` dataset:
 
 * [Recommendation systems](https://rafalab.github.io/dsbook/large-datasets.html#recommendation-systems): use ratings that users have already given to some items in order to make specific recommandations
 * [Regularization](https://rafalab.github.io/dsbook/large-datasets.html#regularization): add information in order to solve an ill-posed problem or to prevent overfitting
@@ -59,14 +60,14 @@ The module [HarvardX: PH125.8x Data Science: Machine Learning](https://courses.e
 The key steps required to identify an optimal solution are:
 
   * prepare the data for the analysis (normalize some columns, extract new features to prepare the analysis)
+  * explore the content of `edx` dataset to identify how every feature relates to the outcome (ratins)
   * create a train and a test set partition out of `edx` dataset to start and validate the analysis
-  * ~explore the content of `train_set` and visualize the distribution of the outcome (`rating`) by every feature~
-  * ~use `train_set` implement several prediction models (see Method/Analysis section for details)~
-  * ~run models and ensembles against `test_set`~
-  * ~evaluate the accuracy and the RMSE of each solution based on `test_set` (see Result for the output)~
   * develop a linear model on `edx` after exploring its content and validate the predictions against the actual rating
-  * perform cross validation on the choosen model to ensure an optimal tuning
-  * report the RMSE against the true values to complete the exercise (RMSE < 0.86490 required)
+  * perform cross-validation to tune the model parameters and avoid overfiiting
+    * subsetting `edx` into  `train_set` and  `test_set` with different seeds
+    * evaluate the RMSE of the different combinations of tuning and seeds
+  * report the RMSE against the true values of the `validation` dataset.
+  * to succeed the exercise, obtain RMSE < 0.86490 required
 
 The quality of the prediction is evaluated using the root mean squared error (RMSE):
 
@@ -78,7 +79,7 @@ RMSE <- function(true_ratings, predicted_ratings){
   }
 ```
 
-## Method/Analysis
+## Analysis
 
 <!--  a methods/analysis section that explains the process and techniques used, including data cleaning, data exploration and visualization, insights gained, and your modeling approach -->
 
@@ -86,13 +87,13 @@ The process of this analysis includes data wrangling, data exploration and the d
 
 ### Data Wrangling/Cleaning
 
-The `edx` and `validation` are the result of some manipulation on a downloaded dataset from `grouplens.org`.
+The `edx` and `validation` are the result of some manipulation on a downloaded dataset from grouplens.org.
 
 1. download the zip file in a temporary directory and unzip it into the workspace directory
 2. read the raw data from two `.dat` files creating `ratings` and `movies` dataframes
 3. normalize column names and cast value as `numeric` and `character`, then join both datasets into the `movielens` dataframe
 4. partition the data in `movielens` to create a train test used for developing the model (`edx`, 90%) and the true values used to calculate the RMSE of the final model (`validation`, 10%)
-5. ensure that userId and movieId in validation set are also in edx set
+5. ensure that userId and movieId in validation set are also in `edx` set
 
 ```{r data_gathering, eval=FALSE}
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
@@ -151,33 +152,14 @@ wrangle_data <-function(ds) {
 }
 ```
 
-Instead of using all the known observations from `edx` dataset, we create a `train_set` and a `test_set` to continue this analysis as follows:
-
-```{r test_train_sets, eval=FALSE}
-set.seed(17, sample.kind="Rounding")
-test_index <- createDataPartition(y = edx$rating, times = 1, p = 0.1, list = FALSE)
-train_set <- edx[-test_index,]
-temp <- edx[test_index,]
-
-# Ensure that userId and movieId in the test_set are included in the train_set
-test_set <- temp %>%
-  semi_join(train_set, by = "movieId") %>%
-  semi_join(train_set, by = "userId")
-
-removed <- anti_join(temp, test_set)
-train_set <- rbind(train_set, removed)
-
-rm(test_index, temp, removed)
-```
-
-We perform our analysis unsing `train_set` and we validate it with `test_set`.
+In order to avoid expensive repetitive task, this manipulation is cached on the filesystem unless a reload is forced. This allows to optimize the time spent performing the next steps.
 
 ### Data Exploration and Insights
 
 > After a first exploration exploration of the most common ML algorithms, we realized that the `train_set`
 > was too large to be trained on my machine. The final model implementation will provide predictions on `edx`
 > which may be compared to the actual `edx$rating`. For this reason the data exploration  will be done on `edx`
-> and the `train_set` - `test_set` won't be used in this analysis.
+> and the `train_set` - `test_set` partitioning will be used only for tuning purposes.
 
 The features we may use in our analysis:
 ```{r features}
@@ -186,18 +168,18 @@ setdiff(colnames(edx), c("rating", "title", "timestamp"))
 
 Since our goal is to predict ratings, we start looking at the overall ratings distribution in the `edx` dataset.
 
-```{r ratings_distribution, echo=FALSE, cache=TRUE, out.height='30%'}
+```{r ratings_distribution, echo=FALSE, out.height='30%'}
 p_rating_distribution_by_year <- edx %>% group_by(reviewYear, rating) %>% count() %>%
   ggplot(aes(x=reviewYear)) +
   geom_bar(aes(y=n, fill = factor(rating)), stat ="identity", alpha = 0.5) +
   geom_vline(xintercept = "2003", color = "red", linetype = "dashed") +
-  ggtitle("Train set ratings distribution by reviewYear")
+  ggtitle("Edx ratings distribution by reviewYear")
 
 p_rating_distribution <- edx %>% group_by(rating) %>% count() %>%
   as_tibble() %>% mutate(half = factor((rating * 2) %% 2), rating = factor(rating)) %>%
   ggplot(aes(x=rating, y=n, color=half, fill = half)) +
   geom_bar(stat ="identity", alpha = 0.3) +
-  ggtitle("Overall train set ratings distribution") +
+  ggtitle("Overall edx ratings distribution") +
   coord_flip() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position = "none")
 
@@ -208,11 +190,14 @@ p_rating_2003_distribution <- edx %>% group_by(rating, reviewYear) %>% count() %
   select(rating, n, half) %>%
   ggplot(aes(x=rating, y=n, color=half, fill = half)) +
   geom_bar(stat ="identity", alpha = 0.3) +
-  ggtitle("Train set ratings distribution (2003-)") +
+  ggtitle("Edx ratings distribution (2003-)") +
   coord_flip() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position = "none")
+  theme(axis.text.x = element_text(angle = 90, vjust = .5), legend.position = "none")
 
 ratingByMovieYear <- edx %>% group_by(movieYear) %>% count() %>% mutate(perc = round(n/nrow(edx), digits = 3))
+
+movieYearStep <- ratingByMovieYear$movieYear[seq(1,nrow(ratingByMovieYear), 5)]
+
 ratingByMovieYear <- ratingByMovieYear %>%
   add_column(cumsum = cumsum(ratingByMovieYear$perc)) %>%
   add_column(nMovieYear = as.numeric(ratingByMovieYear$movieYear))
@@ -222,16 +207,24 @@ p_ratings_by_movie_year <- ratingByMovieYear %>%
   geom_bar(aes(y=perc, fill = factor(nMovieYear/10)), stat ="identity", alpha = 0.3) +
   geom_line(aes(y = (max(ratingByMovieYear$perc)*cumsum)), linetype = "dashed") +
   scale_y_continuous(sec.axis = sec_axis(~./max(ratingByMovieYear$perc), name = "Cumsum")) +
+  scale_x_discrete(
+    breaks=movieYearStep, labels=movieYearStep
+  ) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position = "none") +
-  ggtitle("Train set ratings distribution by movieYear")
+  ggtitle("Ratings by movieYear")
 
 ratingAvgByMovieYear <- edx %>% group_by(movieYear) %>% summarize(avg=mean(rating))
 p_ratings_avg_by_movie_year <- ratingAvgByMovieYear %>%
   ggplot(aes(x=movieYear, y=avg, group=1)) +
   geom_line() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  ggtitle("Train set ratings average by movieYear")
-
+  scale_x_discrete(
+    breaks=ratingAvgByMovieYear$movieYear[seq(1,nrow(ratingAvgByMovieYear), 5)],
+    labels = ratingAvgByMovieYear$movieYear[seq(1,nrow(ratingAvgByMovieYear), 5)]
+  ) +
+  theme(axis.text.x = element_text(angle = 90, vjust = .5)) +
+  ggtitle("Ratings average by movieYear")
+```
+```{r rating_distribution_plot_1, echo=FALSE, out.width='80%'}
 summary(edx$rating)
 grid.arrange(
   grobs = list(
@@ -239,9 +232,11 @@ grid.arrange(
     p_rating_2003_distribution
   ), ncol = 2, as.table = FALSE
 )
-
+```
+```{r rating_distribution_plot_2, echo=FALSE, out.height='30%'}
 p_rating_distribution_by_year
-
+```
+```{r rating_distribution_plot_3, echo=FALSE}
 grid.arrange(
   grobs = list(
     p_ratings_by_movie_year,
@@ -337,16 +332,7 @@ There is some seasonality in the reviews distribution, with a majority of rating
 quarter of the year.
 
 The ratings breakdown by top 10 `genres` is:
-```{r ratings_by_genre, echo=FALSE, cache=TRUE, out.height='30%'}
-# Proof of concept of the following code
-#
-# tibble(g = c("a", "a", "a|b", "b"), r = c(5, 3, 1, 2)) %>%
-#   group_by(g) %>% summarise(n = n(), tmp = sum(r)) %>%
-#   separate_rows(g, sep = "\\|") %>%
-#   group_by(g) %>%
-#   summarise(count = sum(n), avg = sum(tmp)/sum(n))
-#
-
+```{r ratings_by_genre, echo=FALSE, out.height='30%'}
 t_ratings_by_genre <- edx %>%
   group_by(genres) %>%
   summarize(n = n(), tmp = sum(rating)) %>%
@@ -357,7 +343,6 @@ t_ratings_by_genre <- edx %>%
 
 p_ratings_by_genre <- t_ratings_by_genre %>%
   ggplot(aes(x = genres, group=1)) +
-  # geom_line(aes(y = avg), linetype = "dashed") +
   geom_histogram(aes(y = count), stat = "identity", color = "#b2aa8e", fill = "#b2aa8e", alpha = 0.3) +
   geom_line(aes(y = (max(t_ratings_by_genre$count)/5)*avg), linetype = "dashed") +
   scale_y_continuous(sec.axis = sec_axis(~./(max(t_ratings_by_genre$count)/5), name = "Average rating")) +
@@ -378,18 +363,18 @@ n_distinct(edx$movieId)
 n_distinct(edx$userId)
 ```
 
-```{r movie_user_dist, echo=FALSE, out.height= '25%'}
+```{r movie_user_dist, echo=FALSE, out.width='80%'}
 p_bi <- edx %>% group_by(movieId) %>%
   summarize(b_i = mean(rating)) %>%
   ggplot(aes(b_i)) +
   geom_histogram(bins = 10, color = "#540D6E", fill = "#540D6E", alpha = 0.3) +
-  ggtitle("Train set average rating by movieId")
+  ggtitle("Edx average rating by movieId")
 
 p_bu <- edx %>% group_by(userId) %>%
   summarize(b_u = mean(rating)) %>%
   ggplot(aes(b_u)) +
   geom_histogram(bins = 10, color = "#EB5E55", fill = "#EB5E55", alpha = 0.3) +
-  ggtitle("Train set average rating by userId")
+  ggtitle("Edx average rating by userId")
 
 grid.arrange(
   grobs = list(
@@ -519,7 +504,7 @@ y <- edx$rating
 mu <- mean(y)
 ```
 
-1. naive approach: use the average
+#### 1. naive approach: use the average
 
 A first naive approach could be just to take the average rating and predict all the results with it:
 
@@ -540,7 +525,7 @@ rmse_results <- tibble(method = "Model 0: Average", RMSE = model_0_rmse, accurac
 rm(preds_0, start_time, end_time, model_0_time)
 ```
 
-2. Introduce the movie effect
+#### 2. Introduce the movie effect
 
 ```{r movie_effect_fit, eval=FALSE}
 # fit <- lm(rating ~ movieId, data = train_set)
@@ -553,7 +538,7 @@ On a regular machine is not possible to train a linear model on by `movieId`. Th
 
 Following the second approach:
 
-```{r movie_effect}
+```{r movie_effect, out.height='30%'}
 # regularized movie averages
 l <- 0
 reg_movie_avgs <- edx %>%
@@ -624,12 +609,12 @@ if(l != 0) {
 rm(lambdas, l, l_min, l_max, preds_1, preds_1l, start_time, end_time, model_1_time)
 ```
 
-3. Introduce the genres effect -> don't
+#### 3. Introduce the genres effect -> don't
 
 In the model b was described an item-item approach. In order to group similar movies we may used the `genres`
 column provided in the datasets.
 
-```{r genres_effect}
+```{r genres_effect, out.height='30%'}
 ## regularized genres averages
 reg_genres_avgs <- edx %>%
     left_join(reg_movie_avgs, by='movieId') %>%
@@ -642,11 +627,11 @@ ggplot(aes(x=b_c), data=reg_genres_avgs) + geom_histogram(bins=10, alpha=0.8, co
 As we can see in the plot, the `genres` effect after the movie effect does not seem to be relevant (affecting the rating only by 10^-17).
 It is not worth to include it in our model.
 
-4. Introduce the movieYear effect -> don't
+#### 4. Introduce the movieYear effect -> don't
 
 Another item-item approach could be explored using `movieYear`.
 
-```{r movieYear_effect}
+```{r movieYear_effect, out.height='30%'}
 ## regularized movieYear averages
 reg_movieYear_avgs <- edx %>%
     left_join(reg_movie_avgs, by='movieId') %>%
@@ -659,8 +644,8 @@ ggplot(aes(x=b_y), data=reg_movieYear_avgs) + geom_histogram(bins=10, alpha=0.8,
 As we can see in the plot, the `movieYear` effect after the movie effect does not seem to be relevant (affecting the rating only by 10^-17).
 It is not worth to include it in our model.
 
-5. Introduce the userId effect
-```{r userId}
+#### 5. Introduce the userId effect
+```{r userId, out.height='30%'}
 ## regularized reviewYear averages
 l <- 0
 reg_user_avgs <- edx %>%
@@ -739,11 +724,11 @@ if(l != 0) {
 rm(lambdas, L, l_min, l_max, preds_2, preds_2l, start_time, end_time, model_2_time)
 ```
 
-6. Introduce the reviewYear and reviewWeek effect -> don't
+#### 6. Introduce the reviewYear and reviewWeek effect -> don't
 
 We do not have any element to evaluate a user-user approach. On of the few approaches we can imagine is that at a given moment in the time the people tend to rate in a more similar way.
 
-```{r reviewYear}
+```{r reviewYear, out.height='30%'}
 ## regularized reviewYear averages
 l <- 0
 reg_reviewYear_avgs <- edx %>%
@@ -849,16 +834,15 @@ rm(lambdas, l, l_min, l_max, preds_3, preds_3l, start_time, end_time, model_3_ti
 
 Despite the impact is moderate, taking in consideration also `reviewYear` and `reviewWeek` is slightly improving the RMSE.
 
-7. Rounding -> don't
+#### 7. Rounding -> don't
 
 In order to provide exact predictions to match the true values, we should round our predictions in order to match an available rating option.
 We have seen in the data exploration sections that half-rating ratings have been introduced in 2003.
 
 When predicting a rating, we can use this information to make sure that the prediction will be more accurate and see the impact. Since we will already include the `reviewYear` in our mode, we may discard the manipulation at point 6.
 
-```{r userId_round}
-## regularized reviewYear averages
-
+```{r userId_round, out.height='30%'}
+## ceiling factor for rounding
 uReviewYear <- sort(unique(edx$reviewYear))
 ceiling_reviewYear <- tibble(
   reviewYear = uReviewYear,
@@ -916,11 +900,10 @@ rm(preds_4, start_time, end_time, model_4_time)
 
 As we will see in the results, the accuracy is still under 50% and the RMSE gets very bad. We may discard this option even if it was interesting to take in consideration
 
-8. Cross-validation
+#### 8. Cross-validation
 
 In the first version of this report, the model was overfitting the edx set.
 In order to avoid this overfitting we can perform cross validation on several subset of the `edx` dataset
-
 
 ```{r cross_validation, eval=FALSE}
 generate_sets <- function (seed) {
@@ -983,7 +966,7 @@ save(rmses_matrix, file = "./data/rmses_matrix.rda")
 ```
 
 Let's visualize the result:
-```{r rmses_matrix}
+```{r rmses_matrix, out.height='30%'}
 load("data/rmses_matrix.rda")
 
 colMeans(rmses_matrix)
@@ -1007,8 +990,8 @@ melt(rmses_matrix, value.name = "rmse") %>%
 ## Results
 
 <!-- a results section that presents the modeling results and discusses the model performance -->
-Let's see the results of the model developed on the `test_set`:
-```{r edx_rmse}
+Let's see the results of the model developed on `edx`:
+```{r edx_rmse, echo=FALSE, out.width='80%'}
 rmse_results %>% kable(caption = "RMSE on edx dataset")
 
 ggplot(rmse_results, aes(x=method, fill=RMSE <= 0.86490, group=1)) +
@@ -1038,9 +1021,21 @@ final_RMSE <- RMSE(validation$rating, predict_model_2(validation, validation_lam
 final_RMSE
 ```
 
-*The final RMSE is `r final_RMSE`.*
+> **(The final RMSE is `r final_RMSE`.**
 
 ## Conclusion
 
 <!-- a conclusion section that gives a brief summary of the report, its limitations and future work -->
-Working with Big Data can be really challenging.
+R is a great programming language for exploring data and create model. Several tools are distributed as library and the most of machine learning algorithms are collected in the already mentionned `caret` package.
+
+Working with Big Data can be however really challenging. The memory consumption of this dataset made the caret models impossible to train on a regular machine.
+
+A limitation of R as programming language is the lack of flexiblity, especially when it comes to performances. For instance, I managed to reduce the time on my research by implementing some cache in `.rda` files, but I could not opt for parallelism (e.g. when performing cross-validation), use more than a CPU per process or even use my GPU.
+
+Given these limitations, I preferred to continue building a linear model incrementally instead of training a very small percentage of the known observations dataset `edx`.
+
+The initial results reported in the table of the previous section display some interesting result which were mainly due to a model overfitting. Choosing the penalty term after a cross validation on 8 different partitions of the dataset, removed the bias and made the model more accurate. **This allowed to obtain an optimal RMSE.**
+
+About accuracy, an important limitation of this model is the outcome type. Since the user can only choose across a limited set of ratings (`seq(.5,5,.5)`, we can consider the problem as a categorical problem. This model is however returning a continous outcome, so even if we minimize the `RMSE`, the prediction accuracy is still close to 0. In the sub-section 7. of modeling I suggested an approach to round the prediction, but it was out of the scope of this research (and it was affecting negatively the RMSE).
+
+As a future developement, it would be interesting if other ML frameworks allow to better distribute the computation and memory charge. If it is the case, it will be interesting to compare this result with an ensemble of the most known algorithms.
