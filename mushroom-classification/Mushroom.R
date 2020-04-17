@@ -14,6 +14,9 @@ if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
 if(!require(matrixStats)) install.packages("matrixStats", repos = "http://cran.r-project.org")
 
+if(!require(e1071)) install.packages("matrixStats", repos = "http://cran.r-project.org")
+if(!require(gam)) install.packages("gam", repos = "http://cran.r-project.org")
+
 # Unable to retrieve the raw zip file due to a corrupted output (unzip error -1)
 # the uncompressed csv file is not exceeding 365Kb, so it can be requested without
 # any performance or network traffic concern
@@ -70,6 +73,18 @@ x_factors %>%
   geom_hline(yintercept = 2, col="blue", linetype = "dashed") +
   theme(axis.text.x = element_text(angle = 90, vjust = .5)) +
   coord_flip()
+
+mushrooms %>%
+  group_by(odor) %>%
+  summarize(n=n(), edible=mean(class=="e")) %>%
+  ggplot(aes(x=odor), group=1) +
+  geom_bar(aes(y=n, fill=edible), stat="identity")
+
+mushrooms %>%
+  group_by(cap.color) %>%
+  summarize(n=n(), edible=mean(class=="e")) %>%
+  ggplot(aes(x=cap.color), group=1) +
+  geom_bar(aes(y=n, fill=edible), stat="identity")
 
 # Total number of max factors
 sum(x_factors$n_factors)
@@ -188,3 +203,67 @@ x_scaled <- sweep(x_centered, 2, colSds(train_set$x), "/")
 heatmap(x_scaled)
 
 rm(d, h, k)
+
+################################
+# Methods
+################################
+
+RMSE <- function(true_ratings, predicted_ratings){
+  sqrt(mean((true_ratings - predicted_ratings)^2))
+}
+
+# 1 Logistic regression model
+train_glm <- train(train_set$x, train_set$y, method = "glm")
+glm_preds <- predict(train_glm, test_set$x)
+mean(round(glm_preds) == test_set$y)
+
+glm_rmse <- RMSE(test_set$y, glm_preds)
+round(glm_rmse, 3)
+
+# Train control: bootstrap vs cross validation
+train_control <- trainControl(method="cv", number=10)
+
+
+# 2 LDA and QDA model
+train_lda <- train(train_set$x, factor(train_set$y), method = "lda", preProcess = c("center"))
+train_lda
+
+confusionMatrix(train_lda)
+
+lda_preds <- predict(train_lda, test_set$x)
+mean(lda_preds == test_set$y)
+
+# train_qda <- train(train_set$x, factor(train_set$y), method = "qda")
+# qda_preds <- predict(train_qda, test_set$x)
+# mean(qda_preds == test_y)
+
+# model fit failed for Resample01: parameter=none Error in qda.default(x, grouping, ...) : rank deficiency in group 0
+# In nominalTrainWorkflow(x = x, y = y, wts = weights, info = trainInfo,  ... :
+#                           There were missing values in resampled performance measures.
+
+# 3 LOESS model
+set.seed(3, sample.kind = "Rounding")
+train_loess <- train(train_set$x, factor(train_set$y), method = "gamLoess")
+loess_preds <- predict(train_loess, test_set$x)
+mean(loess_preds == test_set$y)
+
+set.seed(2015, sample.kind = "Rounding")
+cp <- seq(0, 0.1, 0.01)
+train_rpart <- train(train_set$x, factor(train_set$y), method = "rpart", tuneGrid = data.frame(cp = cp))
+plot(train_rpart$finalModel, margin = 0.1)
+text(train_rpart$finalModel, cex = 0.75)
+
+ggplot(train_rpart, highlight = TRUE)
+
+train_rpart$bestTune
+# mushrooms %>%
+#   mutate(
+#     pred = ifelse(
+#       odor == "n", 
+#       "e",
+#       ifelse(stalk.root == "c", "e", "p")
+#     ),
+#     ok = class == pred
+#   ) %>% pull(ok) %>% mean()
+# 0.945
+

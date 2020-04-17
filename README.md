@@ -7,7 +7,7 @@ The projects requirements are:
 
 * Files: an `.R` script to perform the analysis, `.Rmd` and `.pdf` reports
 * Report
-  * Introduction/overvie/executive summary
+  * Introduction/overview/executive summary
   * Methods/analysis
   * Results
   * Conclusion

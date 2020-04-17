@@ -1,0 +1,96 @@
+---
+title: "Harvard PH125.9x Capstone: Mushroom Classification Analysis"
+author: "Mauro Berlanda"
+date: "April 2020"
+output: pdf_document
+sansfont: Calibri Light
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo=TRUE,
+  warning=FALSE,
+  cache=FALSE,
+  fig.align='center'
+)
+```
+
+## Introduction
+
+The last assignment of the [Datascience Professional Certificate](https://courses.edx.org/dashboard/programs/3c32e3e0-b6fe-4ee4-bd4f-210c6339e074/) by HarvardX on edx is submitting its own report.
+The main goal of the project is to prove the ability to clearly communicate the process and the insights gained from an analysis.
+
+We are going to use for this analysis the [Mushroom records drawn from The Audubon Society Field Guide to North American Mushrooms (1981](http://archive.ics.uci.edu/ml/datasets/Mushroom). This data set includes descriptions of hypothetical samples corresponding to 23 species of gilled mushrooms in the Agaricus and Lepiota Family.
+
+> The csv file containing the data was originally downloaded from [Kaggle](https://www.kaggle.com/uciml/mushroom-classification/data) due to its ease of manipulation. The file has been commited in a github repository since Kaggle downloads require authentication. Being unable to retrieve the raw zip file due to a corrupted output (`unzip error -1`), my script is downloading the uncompressed csv file. It does not exceed 365Kb, so it can be requested without any performance or network traffic concern.
+
+```{r load_deps, include=FALSE}
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(matrixStats)) install.packages("matrixStats", repos = "http://cran.r-project.org")
+
+if(!require(e1071)) install.packages("matrixStats", repos = "http://cran.r-project.org")
+if(!require(gam)) install.packages("gam", repos = "http://cran.r-project.org")
+```
+
+```{r data_download_parse}
+file_url <- "https://raw.githubusercontent.com/mberlanda/ph125-9x-data-science-capstone/master/mushroom-classification/mushrooms.csv"
+csv_filepath <- "./mushrooms.csv"
+
+# Download the csv file if needed
+if (!file.exists(csv_filepath)) {
+  download.file(file_url, csv_filepath)
+}
+
+# Use read.csv to parse the file converting strings to factors
+mushrooms <- read.csv(csv_filepath, header=TRUE, sep=",", stringsAsFactors=TRUE)
+# Explore the columns and types of the dataset
+str(mushrooms)
+
+rm(file_url, csv_filepath)
+```
+
+To improve the domain knowledge, you can find below an image illustrating the different [parts of a mushroom](https://ohioline.osu.edu/factsheet/plpath-gen-11):
+
+```{r mushrooms_img, echo=FALSE, out.width='100%'}
+mushroom_img <- './HYG_3303_mushroom_parts.jpg'
+mushroom_img_url <- 'https://ohioline.osu.edu/sites/ohioline/files/imce/Plant_Pathology/HYG_3303_mushroom_parts.jpg'
+if (!file.exists(mushroom_img)){
+    download.file(mushroom_img, mushroom_img)
+}
+knitr::include_graphics(mushroom_img)
+rm(mushroom_img, mushroom_img_url)
+```
+
+All the attributes are factors and they represent the following abbreviations:
+
+1. cap-shape: bell=b,conical=c,convex=x,flat=f, knobbed=k,sunken=s
+2. cap-surface: fibrous=f,grooves=g,scaly=y,smooth=s
+3. cap-color: brown=n,buff=b,cinnamon=c,gray=g,green=r, pink=p,purple=u,red=e,white=w,yellow=y
+4. bruises?: bruises=t,no=f
+5. odor: almond=a,anise=l,creosote=c,fishy=y,foul=f, musty=m,none=n,pungent=p,spicy=s
+6. gill-attachment: attached=a,descending=d,free=f,notched=n
+7. gill-spacing: close=c,crowded=w,distant=d
+8. gill-size: broad=b,narrow=n
+9. gill-color: black=k,brown=n,buff=b,chocolate=h,gray=g, green=r,orange=o,pink=p,purple=u,red=e, white=w,yellow=y
+10. stalk-shape: enlarging=e,tapering=t
+11. stalk-root: bulbous=b,club=c,cup=u,equal=e, rhizomorphs=z,rooted=r,missing=?
+12. stalk-surface-above-ring: fibrous=f,scaly=y,silky=k,smooth=s
+13. stalk-surface-below-ring: fibrous=f,scaly=y,silky=k,smooth=s
+14. stalk-color-above-ring: brown=n,buff=b,cinnamon=c,gray=g,orange=o, pink=p,red=e,white=w,yellow=y
+15. stalk-color-below-ring: brown=n,buff=b,cinnamon=c,gray=g,orange=o, pink=p,red=e,white=w,yellow=y
+16. veil-type: partial=p,universal=u
+17. veil-color: brown=n,orange=o,white=w,yellow=y
+18. ring-number: none=n,one=o,two=t
+19. ring-type: cobwebby=c,evanescent=e,flaring=f,large=l, none=n,pendant=p,sheathing=s,zone=z
+20. spore-print-color: black=k,brown=n,buff=b,chocolate=h,green=r, orange=o,purple=u,white=w,yellow=y
+21. population: abundant=a,clustered=c,numerous=n, scattered=s,several=v,solitary=y
+22. habitat: grasses=g,leaves=l,meadows=m,paths=p, urban=u,waste=w,woods=d
+
+The classes used for the outcome are `edible` or `poisonous`. In the Kaggle version of the data set there is no `unknown` classification value and missing values have been removed:
+
+```{r missing_values}
+unique(mushrooms$class)
+sum(is.na(mushrooms))
+```

@@ -142,6 +142,11 @@ Hash: 7b81844db1a93b164ddc4a83da0b1ac9
 Requires: BH, R6, Rcpp, assertthat, ellipsis, glue, magrittr,
     pkgconfig, plogr, rlang, tibble, tidyselect
 
+Package: e1071
+Source: CRAN
+Version: 1.7-3
+Hash: f851e9de06edec144aa7d996bbf32538
+
 Package: ellipsis
 Source: CRAN
 Version: 0.3.0
@@ -179,6 +184,12 @@ Package: fs
 Source: CRAN
 Version: 1.4.1
 Hash: 6fc750e04d9d781e83d38c2f12958c80
+
+Package: gam
+Source: CRAN
+Version: 1.16.1
+Hash: e5426e313930917288ae7fa4287d5252
+Requires: foreach
 
 Package: generics
 Source: CRAN
@@ -302,6 +313,11 @@ Source: CRAN
 Version: 1.1
 Hash: 1b6a18fd395589425e338a47b999099f
 Requires: mime, xfun
+
+Package: matrixStats
+Source: CRAN
+Version: 0.56.0
+Hash: 350c7c45268109cda91a1a34b38cd3a6
 
 Package: mime
 Source: CRAN
@@ -573,6 +589,12 @@ Source: CRAN
 Version: 0.3.0
 Hash: 78bb072c4f9e729a283d4c40ec93f9c6
 
+Package: vtreat
+Source: CRAN
+Version: 1.6.0
+Hash: 9b2e44d68840f1f487eb1a02ee822e91
+Requires: digest, wrapr
+
 Package: whisker
 Source: CRAN
 Version: 0.4
@@ -582,6 +604,11 @@ Package: withr
 Source: CRAN
 Version: 2.1.2
 Hash: d534108bcd5f34ec73e9eb523751ba20
+
+Package: wrapr
+Source: CRAN
+Version: 2.0.0
+Hash: 2fc85fb57fdb543b1379711e05002eff
 
 Package: xfun
 Source: CRAN
