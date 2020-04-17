@@ -14,7 +14,7 @@ if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
 if(!require(matrixStats)) install.packages("matrixStats", repos = "http://cran.r-project.org")
 
-if(!require(e1071)) install.packages("matrixStats", repos = "http://cran.r-project.org")
+if(!require(e1071)) install.packages("e1071", repos = "http://cran.r-project.org")
 if(!require(gam)) install.packages("gam", repos = "http://cran.r-project.org")
 
 # Unable to retrieve the raw zip file due to a corrupted output (unzip error -1)

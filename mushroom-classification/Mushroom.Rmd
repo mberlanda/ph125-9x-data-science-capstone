@@ -26,11 +26,12 @@ We are going to use for this analysis the [Mushroom records drawn from The Audub
 > The csv file containing the data was originally downloaded from [Kaggle](https://www.kaggle.com/uciml/mushroom-classification/data) due to its ease of manipulation. The file has been commited in a github repository since Kaggle downloads require authentication. Being unable to retrieve the raw zip file due to a corrupted output (`unzip error -1`), my script is downloading the uncompressed csv file. It does not exceed 365Kb, so it can be requested without any performance or network traffic concern.
 
 ```{r load_deps, include=FALSE}
+if(!require(knitr)) install.packages("knitr", repos = "http://cran.r-project.org")
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
 if(!require(matrixStats)) install.packages("matrixStats", repos = "http://cran.r-project.org")
 
-if(!require(e1071)) install.packages("matrixStats", repos = "http://cran.r-project.org")
+if(!require(e1071)) install.packages("e1071", repos = "http://cran.r-project.org")
 if(!require(gam)) install.packages("gam", repos = "http://cran.r-project.org")
 ```
 
@@ -94,3 +95,84 @@ The classes used for the outcome are `edible` or `poisonous`. In the Kaggle vers
 unique(mushrooms$class)
 sum(is.na(mushrooms))
 ```
+
+## Analysis
+
+The main challenges raised by this data set are:
+
+a. all the features are categorical => the core of the solution will be in the data wrangling part 
+b. the amount of observation is small (overall around 8k, but we will split it into a training and test sets) => we will need to implement some techniques to avoid overfitting
+
+### Data Wrangling
+
+If we try to approach this classification problem as the `tissue_gene_expression` data set distributed by the `dslabs` package, we will quickly realise that the most of utilities used in the PH125.x courses won't be available.
+
+```{r errored_approach, eval=FALSE}
+# format as list of a features matrix and outcome vector
+formatted_mushrooms <- list(
+  x = mushrooms %>% select(-class) %>% as.matrix,
+  y = mushrooms$class
+)
+
+# Partition train and test set
+set.seed(22, sample.kind="Rounding")
+test_index <- createDataPartition(y=formatted_mushrooms$y, times=1, p=.30, list=FALSE)
+
+train_set <- list(
+  x = formatted_mushrooms$x[-test_index,],
+  y = formatted_mushrooms$y[-test_index]
+)
+
+hclust(train_set$x)
+# Error in if (is.na(n) || n > 65536L) stop("size cannot be NA nor exceed 65536") : 
+# missing value where TRUE/FALSE needed
+
+pca <- prcomp(train_set$x)
+# Error in colMeans(x, na.rm = TRUE) : 'x' must be numeric
+```
+
+The problem is the most of libraries cannot work with categorical features only.
+A solution to this problem can be *encoding the categorical features*.
+Even if the most of resources I googled were explaining how to perform this technique with python ( [All about Categorical Variable Encoding](https://towardsdatascience.com/all-about-categorical-variable-encoding-305f3361fd02), [How to Encode Categorical Data](https://towardsdatascience.com/how-to-encode-categorical-data-d44dde313131)), there is an excellent [R blog post](https://www.r-bloggers.com/a-guide-to-encoding-categorical-features-using-r/) providing a wide overview on the topic.
+
+The most important concept to recall before continuing are:
+
+- Categorical variables can be considered:
+
+  - _Nominal_ (e.g. pen/pencil/eraser or cow/dog/cat)
+  - _Ordinal_ (e.g. excellent/good/bad or fantastic/ok/don't like).
+
+- The three main routes to encode factors string data type are:
+
+  - _Classic Encoders_: e.g. ordinal, OneHot, Binary, Frequency, Hashing ...
+  - _Contrast Encoders_: encode data by looking at different levels of features
+  - _Bayesian Encoders_: use the target as the foundation of the encoding
+
+```{r x_factors, echo=FALSE, out.width='80%'}
+x <- mushrooms %>% select(-class)
+
+x_factors <- tibble(
+  colname = colnames(x),
+  n_factors = sapply(1:ncol(x), function(i) nrow(unique(x[i])))
+) %>% arrange(desc(n_factors))
+
+x_factors %>% 
+  ggplot(aes(colname, n_factors)) +
+  geom_col(alpha=.6) +
+  geom_hline(yintercept = 1, col="red", linetype = "dashed") +
+  geom_hline(yintercept = 2, col="blue", linetype = "dashed") +
+  theme(axis.text.x = element_text(angle = 90, vjust = .5)) +
+  coord_flip() +
+  ggtitle("Number of levels by feature")
+
+knitr::kable(x_factors %>% filter(n_factors < 4), caption="Attributes with less than 4 factors")
+```
+
+
+We can make these insights actionable with the attributes description provided in the Introduction:
+
+- `veil.type` attribute can be ignored since it has only one level
+- `bruises` attribute can be considered as a logical/binary vector
+- `ring.number` attribute is an ordinal variable
+- `population` attribute may be considered as an ordinal variable as well, but it is ambigous (at least for my domain understanding level)
+- the other 18 attributes can be considered as nominal variables
