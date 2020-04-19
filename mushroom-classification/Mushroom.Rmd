@@ -14,6 +14,8 @@ knitr::opts_chunk$set(
   cache=FALSE,
   fig.align='center'
 )
+
+options(digits = 3)
 ```
 
 ## Introduction
@@ -168,11 +170,127 @@ x_factors %>%
 knitr::kable(x_factors %>% filter(n_factors < 4), caption="Attributes with less than 4 factors")
 ```
 
-
 We can make these insights actionable with the attributes description provided in the Introduction:
 
 - `veil.type` attribute can be ignored since it has only one level
-- `bruises` attribute can be considered as a logical/binary vector
+- `bruises`, `gill.size` attributes can be considered as a logical/binary vectors
 - `ring.number` attribute is an ordinal variable
 - `population` attribute may be considered as an ordinal variable as well, but it is ambigous (at least for my domain understanding level)
 - the other 18 attributes can be considered as nominal variables
+
+#### Exploration without any normalization
+
+Before formatting the data, we can only explore the data manually. In fact, we cannot use any library we got familiar with.
+
+Some insights were already gained:
+
+a. Odor effect
+
+```{r mushrooms_by_odor, out.height='35%'}
+mushrooms %>%
+  group_by(odor) %>%
+  summarize(n=n(), edible=mean(class=="e")) %>%
+  mutate(is_edible=ifelse(
+        edible==1, "yes", ifelse(edible==0, "no", "maybe"))
+  ) %>%
+  ggplot(aes(x=odor), group=1) +
+  geom_bar(aes(y=n, fill=is_edible), stat="identity") +
+  geom_text(aes(y=n, label=paste(100*round(edible, digits=3), "%", sep="")), position=position_dodge(width=0.9), vjust=-0.25) +
+  scale_fill_manual(values=c("#f7ef99", "#f78e69","#afc97e")) +
+  scale_x_discrete(labels=c(
+    "a"="almond","l"="anise","c"="creosote","y"="fishy","f"="foul",
+    "m"="musty","n"="none","p"="pungent","s"="spicy"
+  )) +
+  ggtitle("Mushrooms count by odor") +
+  theme(axis.text.x = element_text(angle=45))
+```
+
+- When odor is almond or anise, the mushroom is alway edible.
+- When the mushroom has no odor, it has a 96.6% probability to be edible.
+- In any other case, the mushroom s not edible.
+
+It would be worth then to explore investigate the effect of the other features when odor is none.
+
+b. Cap.color effect
+
+```{r mushrooms_by_cap, out.height='35%'}
+mushrooms %>%
+  filter(odor =="n") %>%
+  group_by(cap.color) %>%
+  summarize(n=n(), edible=mean(class=="e")) %>%
+  mutate(is_edible=ifelse(
+        edible==1, "yes", ifelse(edible==0, "no", "maybe"))
+  ) %>%
+  ggplot(aes(x=cap.color), group=1) +
+  geom_bar(aes(y=n, fill=is_edible), stat="identity") +
+  geom_text(aes(y=n, label=paste(100*round(edible, digits=3), "%", sep="")), position=position_dodge(width=0.9), vjust=-0.25) +
+  scale_fill_manual(values=c("#f7ef99", "#f78e69","#afc97e")) +
+  scale_x_discrete(labels=c(
+    "n"="brown","b"="buff","c"="cinnamon","g"="gray","r"="green",
+    "p"="pink","u"="purple","e"="red","w"="white","y"="yellow"
+  )) +
+  ggtitle("Mushrooms with none odor by cap color") +
+  theme(axis.text.x = element_text(angle=45))
+```
+
+The additional insights analysing the mushrooms with odor `none` by cap color are:
+
+- When cap is cinnamon, red, gray, green or purple the mushrooms are edible
+- When cap is yellow, the mushroom is never edible
+
+c. Gill.color effect
+
+```{r mushrooms_by_gill, out.height='35%'}
+mushrooms %>%
+  filter(odor =="n") %>%
+  filter(cap.color %in% c("n", "b", "p", "w")) %>%
+  group_by(gill.color) %>%
+  summarize(n=n(), edible=mean(class=="e")) %>%
+  mutate(is_edible=ifelse(
+        edible==1, "yes", ifelse(edible==0, "no", "maybe"))
+  ) %>%
+  ggplot(aes(x=gill.color), group=1) +
+  geom_bar(aes(y=n, fill=is_edible), stat="identity") +
+  geom_text(aes(y=n, label=paste(100*round(edible, digits=3), "%", sep="")), position=position_dodge(width=0.9), vjust=-0.25) +
+  scale_fill_manual(values=c("#f7ef99", "#f78e69","#afc97e")) +
+  scale_x_discrete(labels=c(
+    "k"="black","n"="brown","b"="buff","h"="chocolate","g"="gray",
+    "r"="green","o"="orange","p"="pink","u"="purple","e"="red",
+    "w"="white","y"="yellow"
+  )) +
+  ggtitle("Gill color effect on a subset of mushrooms") +
+  theme(axis.text.x = element_text(angle=45))
+```
+
+The insights gained on mushroom with none odor and a color brown, buff, pink or white are:
+
+- When gill.color is red, chocolate, black, brown, orange, pink, purple or yellow the mushroom is always edible
+- When the gill.color is green the mushroom is not edible
+
+We could have continue this breakdown to build a model to validate our predictions against the true values. We can use however a set of techniques to manipulate categorical attributes as described above.
+
+#### Using Classic Encoders
+
+A different (and still easy to understand) approach would be to encode these categorical features using **OneHot** encoding.
+
+A one hot encoding is a representation of categorical variables as binary vectors.
+This can be perfomed using some libraries as [`vtreat`](https://cran.r-project.org/web/packages/vtreat/index.html) as follows:
+
+```{r vtreat, eval=FALSE}
+if(!require(vtreat)) install.packages("vtreat", repos = "http://cran.r-project.org")
+tz <- vtreat::designTreatmentsZ(x, colnames(x))
+new_x <- vtreat::prepare(tz, x)
+ncol(new_x)
+colnames(new_x)
+detach("package:vtreat", unload = TRUE)
+```
+
+The output of this normalization is very effective for creating efficient models but it may lead to some lack of visibility when interpreting the results.
+
+In our analysis, we are going to normalize the data manually using different techniques before splitting train and test set. In this way we can keep a strict control on the formatted data structure.
+
+```{r formatted_mushrooms}
+
+
+```
+
