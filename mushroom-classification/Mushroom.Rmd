@@ -168,6 +168,8 @@ x_factors %>%
   ggtitle("Number of levels by feature")
 
 knitr::kable(x_factors %>% filter(n_factors < 4), caption="Attributes with less than 4 factors")
+
+rm(x, x_factors)
 ```
 
 We can make these insights actionable with the attributes description provided in the Introduction:
@@ -176,7 +178,7 @@ We can make these insights actionable with the attributes description provided i
 - `bruises`, `gill.size` attributes can be considered as a logical/binary vectors
 - `ring.number` attribute is an ordinal variable
 - `population` attribute may be considered as an ordinal variable as well, but it is ambigous (at least for my domain understanding level)
-- the other 18 attributes can be considered as nominal variables
+- the other 18 attributes may be considered as nominal variables
 
 #### Exploration without any normalization
 
@@ -201,7 +203,7 @@ mushrooms %>%
     "a"="almond","l"="anise","c"="creosote","y"="fishy","f"="foul",
     "m"="musty","n"="none","p"="pungent","s"="spicy"
   )) +
-  ggtitle("Mushrooms count by odor") +
+  ggtitle("Mushrooms  odor effect") +
   theme(axis.text.x = element_text(angle=45))
 ```
 
@@ -229,7 +231,7 @@ mushrooms %>%
     "n"="brown","b"="buff","c"="cinnamon","g"="gray","r"="green",
     "p"="pink","u"="purple","e"="red","w"="white","y"="yellow"
   )) +
-  ggtitle("Mushrooms with none odor by cap color") +
+  ggtitle("Mushrooms cap color effect with none odor") +
   theme(axis.text.x = element_text(angle=45))
 ```
 
@@ -287,10 +289,100 @@ detach("package:vtreat", unload = TRUE)
 
 The output of this normalization is very effective for creating efficient models but it may lead to some lack of visibility when interpreting the results.
 
-In our analysis, we are going to normalize the data manually using different techniques before splitting train and test set. In this way we can keep a strict control on the formatted data structure.
+In our analysis, we are going to normalize the data manually using different techniques before splitting train and test set. In this way we can keep a strict control on the formatted data structure. In order to make this manipulation easy to reproduce (e.g. in case we want to test our model against additional observations), it will be wrapped in a function called `formatMushrooms`:
 
-```{r formatted_mushrooms}
+```{r formatted_mushrooms_func}
+formatMushrooms <- function(df) {
+  # private utility function
+  mapValues <- function(v, m) {
+    sapply(v, function(x) do.call("switch", prepend(m, x)))
+  }
+  
+  # Select nominal categorical features with more than 2 categories
+  new_df <- df %>%
+    select(
+      cap.color, cap.shape, cap.surface, gill.attachment, gill.color, habitat, odor,
+      population, ring.type, spore.print.color, stalk.color.above.ring,
+      stalk.color.below.ring, stalk.root, stalk.surface.above.ring,
+      stalk.surface.below.ring, veil.color
+    )
+    
+  # Nominal variables
+  colorsMapping <- list(
+    "b"=".buff","c"=".cinnamon","e"=".red","g"=".gray","h"=".chocolate","k"=".black",
+    "n"=".brown","o"=".orange","p"=".pink","r"=".green","u"=".purple","w"=".white",
+    "y"=".yellow"
+  )
+  surfacesMapping <- list("f"=".fibrous","g"=".grooves","y"=".scaly","s"=".smooth")
+  
+  capShapeMapping <- list("b"=".bell","c"=".conical","x"=".convex","f"=".flat", "k"=".knobbed","s"=".sunken")
+  gillAttachmentMapping <- list("a"=".attached","d"=".descending","f"=".free","n"=".notched")
+  habitatMapping <- list("g"=".grasses","l"=".leaves","m"=".meadows","p"=".paths", "u"=".urban","w"=".waste","d"=".woods")
+  odorMapping <- list("a"=".almond","l"=".anise","c"=".creosote","y"=".fishy","f"=".foul", "m"=".musty","n"=".none","p"=".pungent","s"=".spicy")
+  populationMapping <- list("a"=".abundant","c"=".clustered","n"=".numerous", "s"=".scattered","v"=".several","y"=".solitary")
+  ringTypeMapping <- list("c"=".cobwebby","e"=".evanescent","f"=".flaring","l"=".large", "n"=".none","p"=".pendant","s"=".sheathing","z"=".zone")
+  stalkRootMapping <- list("b"=".bulbous","c"=".club","u"=".cup","e"=".equal", "z"=".rhizomorphs","r"=".rooted","missing"=".missing")
 
+  new_df$cap.color <- mapValues(df$cap.color, colorsMapping) %>% factor
+  new_df$gill.color <- mapValues(df$gill.color, colorsMapping) %>% factor
+  new_df$spore.print.color <- mapValues(df$spore.print.color, colorsMapping) %>% factor
+  new_df$stalk.color.above.ring <- mapValues(df$stalk.color.above.ring, colorsMapping) %>% factor
+  new_df$stalk.color.below.ring <- mapValues(df$stalk.color.below.ring, colorsMapping) %>% factor
+  new_df$veil.color <- mapValues(df$veil.color, colorsMapping) %>% factor
 
+  new_df$cap.surface <- mapValues(df$cap.surface, surfacesMapping) %>% factor
+  new_df$stalk.surface.above.ring <- mapValues(df$stalk.surface.above.ring, surfacesMapping) %>% factor
+  new_df$stalk.surface.below.ring <- mapValues(df$stalk.surface.below.ring, surfacesMapping) %>% factor
+
+  new_df$cap.shape <- mapValues(df$cap.shape, capShapeMapping) %>% factor
+  new_df$gill.attachment <- mapValues(df$gill.attachment, gillAttachmentMapping) %>% factor
+  new_df$habitat <- mapValues(df$habitat, habitatMapping) %>% factor
+  new_df$odor <- mapValues(df$odor, odorMapping) %>% factor
+  new_df$population <- mapValues(df$population, populationMapping) %>% factor
+  new_df$ring.type <- mapValues(df$ring.type, ringTypeMapping) %>% factor
+  new_df$stalk.root <- mapValues(df$stalk.root, stalkRootMapping) %>% factor
+
+  # Cleanup
+  rm(
+    colorsMapping, surfacesMapping, capShapeMapping, gillAttachmentMapping,
+    habitatMapping, odorMapping, populationMapping, ringTypeMapping, stalkRootMapping
+  )
+  # One Hot encoding: convert nominal variables with more than 2 categories
+  # https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/model.matrix
+  new_df <- model.matrix(
+    ~.-1,
+    data = new_df
+  )
+  
+  # ordinal variables
+  # gill.spacing: "c"="close","w"="crowded","d"="distant"
+  gillSpacingMapping <- list("c"=0,"w"=1,"d"=2)
+  # ring.number: "n"="none","o"="one","t"="two"
+  ringNumberMapping <-list("n"=0,"o"=1,"t"=2) 
+
+  new_df <- new_df %>%
+    as_tibble() %>%
+    add_column(
+      grill.spacing = mapValues(df$gill.spacing, gillSpacingMapping),
+      ring.number = mapValues(df$ring.number, ringNumberMapping),
+      bruises = ifelse(df$bruises=="t",1,0),
+      gill.size.narrow = ifelse(df$gill.size=="n",1,0),
+      stalk.shape.enrlarging = ifelse(df$stalk.shape=="e",1,0)
+      # veil.type is ignored in this analysis since it is constant in the data set
+      # veil.type.universal = ifelse(df$veil.type=="u",1,0)
+    ) %>% as.matrix
+  
+  rm(gillSpacingMapping, ringNumberMapping)
+    
+  list(
+    x = new_df,
+    y = df$class == "e" # edible
+  )
+}
 ```
 
+The formatted data are:
+```{r formatted_mushrooms}
+formatted_mushrooms <- formatMushrooms(mushrooms)
+rm(mushrooms)
+```
