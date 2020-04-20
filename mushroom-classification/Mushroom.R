@@ -16,10 +16,10 @@ if(!require(matrixStats)) install.packages("matrixStats", repos = "http://cran.r
 
 if(!require(e1071)) install.packages("e1071", repos = "http://cran.r-project.org")
 if(!require(gam)) install.packages("gam", repos = "http://cran.r-project.org")
-
+if(!require(randomForest)) install.packages("randomForest", repos = "http://cran.r-project.org")
 
 # Automatically disable plots when computing the solution as a shell script
-SHOW_PLOTS <- TRUE
+SHOW_PLOTS <- FALSE
 
 # Unable to retrieve the raw zip file due to a corrupted output (unzip error -1)
 # the uncompressed csv file is not exceeding 365Kb, so it can be requested without
@@ -266,12 +266,17 @@ formatMushrooms <- function(df) {
   
   list(
     x = new_df,
-    y = ifelse(df$class=="e",1,0) # edible
+    y = factor(ifelse(df$class=="e",1,0)) # edible
   )
 }
 
 formatted_mushrooms <- formatMushrooms(mushrooms)
 
+object.size(mushrooms)
+object.size(formatted_mushrooms)
+
+dim(formatted_mushrooms$x)
+colnames(formatted_mushrooms$x)
 
 rm(mushrooms, formatMushrooms)
 
@@ -361,70 +366,204 @@ table(k$cluster, train_set$y)
 library(matrixStats)
 x_centered <- sweep(train_set$x, 2, colMeans(train_set$x))
 x_scaled <- sweep(x_centered, 2, colSds(train_set$x), "/")
-heatmap(x_scaled)
 
-rm(d, h, k)
+if (SHOW_PLOTS) heatmap(x_scaled)
+
+rm(d, h, k, x_centered, x_scaled)
 
 ################################
 # Methods
 ################################
 
+# Train control: bootstrap vs cross validation
+train_control <- trainControl(method="cv", number=10)
+
 RMSE <- function(true_ratings, predicted_ratings){
   sqrt(mean((true_ratings - predicted_ratings)^2))
 }
 
-# 1 Logistic regression model
-train_glm <- train(train_set$x, train_set$y, method = "glm")
-glm_preds <- predict(train_glm, test_set$x)
-mean(round(glm_preds) == test_set$y)
+### 
+# Classification models
+###
 
-glm_rmse <- RMSE(test_set$y, glm_preds)
-round(glm_rmse, 3)
 
-# Train control: bootstrap vs cross validation
-train_control <- trainControl(method="cv", number=10)
+# 1 Generalized Linear Model
+start_time <- Sys.time()
+train_glm <- train(
+  train_set$x,
+  factor(train_set$y),
+  trControl = train_control,
+  method = "glm"
+)
+end_time <- Sys.time()
+duration <- as.numeric(difftime(end_time, start_time, units="secs"))
+y_hat <- predict(train_glm, train_set$x)
+conf_matrix <- confusionMatrix(data=y_hat, reference=train_set$y)
 
-# 2 LDA and QDA model
-train_lda <- train(train_set$x, factor(train_set$y), method = "lda", preProcess = c("center"))
-train_lda
+models_results <- data.frame(
+   method= "glm",
+   accuracy=conf_matrix$overall["Accuracy"],
+   sensitivity=conf_matrix$byClass["Sensitivity"],
+   specificity=conf_matrix$byClass["Specificity"],
+   duration=duration,
+   memory=as.numeric(object.size(train_glm))
+)
 
-confusionMatrix(train_lda)
+rm(start_time, end_time, duration, y_hat, conf_matrix)
 
-lda_preds <- predict(train_lda, test_set$x)
-mean(lda_preds == test_set$y)
+# 2 Linear Discriminant Analysis
+start_time <- Sys.time()
+train_lda <- train(
+  train_set$x,
+  factor(train_set$y),
+  trControl = train_control,
+  preProcess = c("center"),
+  method = "lda"
+)
+end_time <- Sys.time()
+duration <- as.numeric(difftime(end_time, start_time, units="secs"))
+y_hat <- predict(train_lda, train_set$x)
+conf_matrix <- confusionMatrix(data=y_hat, reference=train_set$y)
 
-# train_qda <- train(train_set$x, factor(train_set$y), method = "qda")
-# qda_preds <- predict(train_qda, test_set$x)
-# mean(qda_preds == test_y)
+models_results <- bind_rows(
+  models_results,
+  data.frame(
+    method= "lda",
+    accuracy=conf_matrix$overall["Accuracy"],
+    sensitivity=conf_matrix$byClass["Sensitivity"],
+    specificity=conf_matrix$byClass["Specificity"],
+    duration=duration,
+    memory=as.numeric(object.size(train_lda))
+  )
+)
 
-# model fit failed for Resample01: parameter=none Error in qda.default(x, grouping, ...) : rank deficiency in group 0
-# In nominalTrainWorkflow(x = x, y = y, wts = weights, info = trainInfo,  ... :
-#                           There were missing values in resampled performance measures.
+rm(start_time, end_time, duration, y_hat, conf_matrix)
 
-# 3 LOESS model
+# 3 LOESS model	
 set.seed(3, sample.kind = "Rounding")
-train_loess <- train(train_set$x, factor(train_set$y), method = "gamLoess")
-loess_preds <- predict(train_loess, test_set$x)
-mean(loess_preds == test_set$y)
+start_time <- Sys.time()
+train_loess <- train(
+  train_set$x,
+  factor(train_set$y),
+  trControl = train_control,
+  method = "gamLoess"
+)
+end_time <- Sys.time()
+duration <- as.numeric(difftime(end_time, start_time, units="secs"))
+y_hat <- predict(train_loess, train_set$x)
+conf_matrix <- confusionMatrix(data=y_hat, reference=train_set$y)
 
+models_results <- bind_rows(
+  models_results,
+  data.frame(
+    method= "loess",
+    accuracy=conf_matrix$overall["Accuracy"],
+    sensitivity=conf_matrix$byClass["Sensitivity"],
+    specificity=conf_matrix$byClass["Specificity"],
+    duration=duration,
+    memory=as.numeric(object.size(train_loess))
+  )
+)
+
+rm(start_time, end_time, duration, y_hat, conf_matrix)
+
+# 4 k-Nearest Neighbors
 set.seed(2015, sample.kind = "Rounding")
-cp <- seq(0, 0.1, 0.01)
-train_rpart <- train(train_set$x, factor(train_set$y), method = "rpart", tuneGrid = data.frame(cp = cp))
-plot(train_rpart$finalModel, margin = 0.1)
-text(train_rpart$finalModel, cex = 0.75)
+start_time <- Sys.time()
+train_knn <- train(
+  train_set$x,
+  factor(train_set$y),
+  trControl = train_control,
+  tuneGrid = data.frame(k=c(2)),
+  method = "knn"
+)
+end_time <- Sys.time()
+duration <- as.numeric(difftime(end_time, start_time, units="secs"))
+y_hat <- predict(train_knn, train_set$x)
+conf_matrix <- confusionMatrix(data=y_hat, reference=train_set$y)
 
-ggplot(train_rpart, highlight = TRUE)
+models_results <- bind_rows(
+  models_results,
+  data.frame(
+    method= "knn",
+    accuracy=conf_matrix$overall["Accuracy"],
+    sensitivity=conf_matrix$byClass["Sensitivity"],
+    specificity=conf_matrix$byClass["Specificity"],
+    duration=duration,
+    memory=as.numeric(object.size(train_knn))
+  )
+)
 
-train_rpart$bestTune
-# mushrooms %>%
-#   mutate(
-#     pred = ifelse(
-#       odor == "n", 
-#       "e",
-#       ifelse(stalk.root == "c", "e", "p")
-#     ),
-#     ok = class == pred
-#   ) %>% pull(ok) %>% mean()
-# 0.945
+rm(start_time, end_time, duration, y_hat, conf_matrix)
+
+# 5 CART
+set.seed(2019, sample.kind = "Rounding")
+start_time <- Sys.time()
+train_rpart <- train(
+  train_set$x,
+  factor(train_set$y),
+  trControl = train_control,
+  tuneGrid = data.frame(cp=seq(0.01,0.1,0.01)),
+  method = "rpart"
+)
+end_time <- Sys.time()
+duration <- as.numeric(difftime(end_time, start_time, units="secs"))
+y_hat <- predict(train_rpart, train_set$x)
+conf_matrix <- confusionMatrix(data=y_hat, reference=train_set$y)
+
+if (SHOW_PLOTS) {
+  plot(train_rpart$finalModel, margin = 0.15)
+  text(train_rpart$finalModel, cex = 0.7)
+}
+
+models_results <- bind_rows(
+  models_results,
+  data.frame(
+    method= "rpart",
+    accuracy=conf_matrix$overall["Accuracy"],
+    sensitivity=conf_matrix$byClass["Sensitivity"],
+    specificity=conf_matrix$byClass["Specificity"],
+    duration=duration,
+    memory=as.numeric(object.size(train_rpart))
+  )
+)
+
+rm(start_time, end_time, duration, y_hat, conf_matrix)
+
+# 6 Random Forest
+set.seed(2016, sample.kind = "Rounding")
+start_time <- Sys.time()
+train_rf <- train(
+  train_set$x,
+  factor(train_set$y),
+  trControl = train_control,
+  tuneGrid = data.frame(mtry = seq(3,9,2)),
+  method = "rf"
+)
+end_time <- Sys.time()
+duration <- as.numeric(difftime(end_time, start_time, units="secs"))
+y_hat <- predict(train_rf, train_set$x)
+conf_matrix <- confusionMatrix(data=y_hat, reference=train_set$y)
+
+models_results <- bind_rows(
+  models_results,
+  data.frame(
+    method= "rf",
+    accuracy=conf_matrix$overall["Accuracy"],
+    sensitivity=conf_matrix$byClass["Sensitivity"],
+    specificity=conf_matrix$byClass["Specificity"],
+    duration=duration,
+    memory=as.numeric(object.size(train_rf))
+  )
+)
+
+rm(start_time, end_time, duration, y_hat, conf_matrix)
+
+################################
+# Results
+################################
+
+models_results
+confusionMatrix(predict(train_knn, test_set$x), test_set$y)
 
 rm(SHOW_PLOTS)
