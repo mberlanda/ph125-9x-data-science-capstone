@@ -211,7 +211,7 @@ mushrooms %>%
 
 - When odor is almond or anise, the mushroom is alway edible.
 - When the mushroom has no odor, it has a 96.6% probability to be edible.
-- In any other case, the mushroom s not edible.
+- In any other case, the mushroom is not edible.
 
 It would be worth then to explore investigate the effect of the other features when odor is none.
 
@@ -266,12 +266,12 @@ mushrooms %>%
   theme(axis.text.x = element_text(angle=45))
 ```
 
-The insights gained on mushroom with none odor and a color brown, buff, pink or white are:
+The insights gained on mushroom with none odor and cap color brown, buff, pink or white are:
 
 - When gill.color is red, chocolate, black, brown, orange, pink, purple or yellow the mushroom is always edible
 - When the gill.color is green the mushroom is not edible
 
-We could have continue this breakdown to build a model to validate our predictions against the true values. We can use however a set of techniques to manipulate categorical attributes as described above.
+We could continue this breakdown to build a model to validate our predictions against the true values. We can use however a set of techniques to manipulate categorical attributes as described above.
 
 ### Using Classic Encoders
 
@@ -416,11 +416,66 @@ dim(train_set$x)
 rm(formatted_mushrooms, test_index)
 ```
 
+### Exploring with Principal Component Analysis
+
+After this manipulation, we have 95 dimensions in our train dataset. We can investigate the possibility of applying one of the [dimension reduction](https://rafalab.github.io/dsbook/large-datasets.html#dimension-reduction) techniques illustrated in PH125.x, such as principal component analysis.
+
+```{r pca, out.height='35%'}
+pca <- prcomp(with(train_set, sweep(x, 1, rowMeans(x))))
+
+summary(pca)$importance[,1:6]
+
+tibble(
+  pc=1:ncol(summary(pca)$importance),
+  cumulative_proportion=summary(pca)$importance[3,]
+) %>% ggplot(aes(x=pc)) +
+  geom_line(aes(y=cumulative_proportion)) +
+  geom_hline(yintercept=0.5, color="red", linetype="dashed") +
+  geom_hline(yintercept=0.9, color="grey", linetype="dashed")
+
+gridExtra::grid.arrange(
+  grobs=map(1:4, function(i) { 
+    ggplot(aes(x=edible, y=pc), data=data.frame(pc=pca$x[,i], edible=train_set$y)) +
+      geom_boxplot() + ggtitle(paste("PC", i)) +
+      theme(plot.margin=unit(x=c(.5, .5, .5, .5), units="lines"))
+    }),
+  ncol=2
+)
+
+df <- data.frame(pca$x[,1:4], y=train_set$y)
+
+gridExtra::grid.arrange(
+  grobs= lapply(
+    list(
+      df %>% ggplot(aes(PC1, PC2, fill=y)),
+      df %>% ggplot(aes(PC1, PC3, fill=y)),
+      df %>% ggplot(aes(PC1, PC4, fill=y)),
+      df %>% ggplot(aes(PC2, PC3, fill=y))
+    ), function(p) {
+      p +
+      geom_point(cex=3, pch=21) +
+      coord_fixed(ratio=1) +
+      theme(
+        plot.margin=unit(x=c(.5, .5, .5, .5), units="lines"),
+        legend.position="none"
+      )  
+    }
+  ),
+  ncol=2
+)
+rm(pca, df)
+```
+When used for other dataset analysis, the PCA was able to explain over 0.9 of the cumulative proportion of variance with a couple of attributes. Thanks to this property, it was easy to plot and visualize the clusters of observations.
+
+In this data set more than 25 components will be required to provide a cumuluative proportion of variance. Moreover, for PC1 the interquartile ranges for edible and poisonous are not overlapping (except for a few outliers). In all other dimensions the IQR are overlapped.
+
+After a first analysis, the benefit of including PC in our model does not seem this important. We may reconsider PCA if the accuracy of our analysis is not good enough.
+
 ### Methods
 
-Since the train set has only `r length(train_set$y)` observations, we need to find a way of avoiding the overfitting. One effective technique is perform [cross-validation](https://rafalab.github.io/dsbook/cross-validation.html) on our models.
+Since the train set has only `r length(train_set$y)` observations, we need to find to avoid overfitting. One effective technique is to perform [cross-validation](https://rafalab.github.io/dsbook/cross-validation.html) on our models.
 
-This can be performed passing the following options to the `caret` train models:
+This can be done passing the following options to the `caret` train models:
 
 ```{r train_control}
 train_control <- trainControl(method="cv", number=10)
@@ -436,14 +491,26 @@ RMSE <- function(true_ratings, predicted_ratings){
 
 However, to solve this classification problem, we are going to base our decision on the `accuracy` .
 
-Once we decide the model (or the ensemble) to use, we are going to validate it against the validation set.
-
 Since the outcome is identify if a mushroom is poisonous or edible (where edible is the positive value), we would tend to prefer a model with the highest **sensitivity** (true positive rate) rather than **specificity** (true negative rate). In fact, a false positive would have worst consequences than a false negative.
 
 The results of models are collected in the same object `models_results` and will be commented in the Results section.
 
+Once we decide the model (or the ensemble) to adopt, we are going to validate it against the validation set.
+
+For every model we are going to list the attributes importance >=50%. 
+
+```{r heatmap, warning=FALSE, out.width='70%'}
+set.seed(1234, sample.kind="Rounding")
+heatmap(
+  train_set$x,
+  distfun=function(x) as.dist(1-cor(t(x))),
+  hclustfun=function(x) hclust(x, method="ward.D2")
+)
+```
+
 #### Generalized Linear Model
 
+[https://en.wikipedia.org/wiki/Generalized_linear_model](https://en.wikipedia.org/wiki/Generalized_linear_model)
 ```{r glm, warning=FALSE}
 start_time <- Sys.time()
 train_glm <- train(
@@ -474,6 +541,7 @@ rm(start_time, end_time, duration, y_hat, conf_matrix, vv)
 
 #### Linear Discriminant Analysis
 
+[https://en.wikipedia.org/wiki/Linear_discriminant_analysis](https://en.wikipedia.org/wiki/Linear_discriminant_analysis)
 ```{r lda, warning=FALSE}
 start_time <- Sys.time()
 train_lda <- train(
@@ -487,7 +555,7 @@ end_time <- Sys.time()
 duration <- as.numeric(difftime(end_time, start_time, units="secs"))
 y_hat <- predict(train_lda, train_set$x)
 conf_matrix <- confusionMatrix(data=y_hat, reference=train_set$y)
-confusionMatrix(data=predict(train_lda, test_set$x), reference=test_set$y)
+
 models_results <- bind_rows(
   models_results,
   data.frame(
@@ -507,6 +575,7 @@ rm(start_time, end_time, duration, y_hat, conf_matrix, vv)
 ```
 
 #### Generalized Additive Model using LOESS
+[https://en.wikipedia.org/wiki/Generalized_additive_model](https://en.wikipedia.org/wiki/Generalized_additive_model)
 ```{r loess, warnings=FALSE}
 set.seed(3, sample.kind = "Rounding")
 start_time <- Sys.time()
@@ -537,6 +606,7 @@ rm(start_time, end_time, duration, y_hat, conf_matrix)
 ```
 
 #### k-Nearest Neighbors
+[https://en.wikipedia.org/wiki/K-nearest_neighbors_algorithm](https://en.wikipedia.org/wiki/K-nearest_neighbors_algorithm)
 ```{r knn, warnings=FALSE}
 set.seed(2015, sample.kind = "Rounding")
 start_time <- Sys.time()
@@ -571,6 +641,7 @@ rm(start_time, end_time, duration, y_hat, conf_matrix, vv)
 ```
 
 #### Classification and Regression Tree
+[https://en.wikipedia.org/wiki/Decision_tree_learning](https://en.wikipedia.org/wiki/Decision_tree_learning)
 ```{r cart, warning=FALSE}
 set.seed(2019, sample.kind = "Rounding")
 start_time <- Sys.time()
@@ -605,6 +676,7 @@ rm(start_time, end_time, duration, y_hat, conf_matrix)
 ```
 
 #### Random Forest
+[https://en.wikipedia.org/wiki/Random_forest](https://en.wikipedia.org/wiki/Random_forest)
 ```{r random_forest, warning=FALSE}
 set.seed(2016, sample.kind = "Rounding")
 start_time <- Sys.time()
@@ -612,7 +684,7 @@ train_rf <- train(
   train_set$x,
   factor(train_set$y),
   trControl = train_control,
-  tuneGrid = data.frame(mtry = seq(3,9,2)),
+  tuneGrid = data.frame(mtry = seq(3,7,2)),
   method = "rf"
 )
 end_time <- Sys.time()
@@ -646,7 +718,6 @@ models_results %>% knitr::kable(caption="Models results")
 
 As mentionned in the Methods subsection, the purpose of this analysis is to provide a prediction model in order to tell if a mushroom is edible or poisonous.
 
-
 The most of the model trained have an accuracy of 1 - all except for `rpart`. Its tuning has not been optimized in order to plot an interpretable tree. `lda` has a sensitivity, so following its prediction someone could be poisoned when the model is predicting that the mushroom is edible.
 
 The predictions provided by `glm`, `knn` and `rf` are equivalent and all corrected.
@@ -661,4 +732,20 @@ confusionMatrix(predict(train_knn, test_set$x), test_set$y)
 For the latest assignment of PH125.x specialization, I was initially considering some trending topic such as Covid-19 data sets (I found multiple versions on Kraggle). However, I do not have a medical background to provide some meaningful insights (I always keep in mind the examples listed in several websites about [spurious correlations](http://www.tylervigen.com/spurious-correlations)). The instruction of the WHO have not been followed in the same way across all the countries, so the analysis would have been very weak.
 
 When I was a child, I used to collect wild mushrooms with my grand parents. I've always been a bit scared of eating a poisonous one even if I trusted my grandpa. For this project, I wanted to check if machine learning is confirming my grand parents tips.
+
+My grandparents "algorithms" - as far as I remember - was:
+
+- touch the gill attachment (prefer when it's *spongy*)
+- smell the odor
+- check the stalk and the rings
+
+This seems to be pretty much coherent with the result of the knn model we used for the solution.
+
+The most interesting takeways of this analysis were about the techniques to encode data and avoid overfitting. Even the rudimental benchmark done on the methods could be a first step for additional developments.
+
+We may extend the scope of this research including:
+
+- validation of the model against more recent observation (the data set used is almost 40 years old)
+- inclusion of more mushroom families other than Agaricus and Lepiota
+- evaluation of different ways to encode categorical features
 

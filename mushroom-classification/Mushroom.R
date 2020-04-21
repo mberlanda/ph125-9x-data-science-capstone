@@ -327,8 +327,7 @@ cor(df$avg, df$PC)
 rm(df, pca)
 
 # remove the center
-x <- with(train_set, sweep(x, 1, rowMeans(x)))
-pc <- prcomp(x)
+pc <- prcomp(with(train_set, sweep(x, 1, rowMeans(x))))
 
 if (SHOW_PLOTS) {
   data.frame(pc$x[,1:2], edible=train_set$y) %>% 
@@ -336,13 +335,11 @@ if (SHOW_PLOTS) {
     geom_point(cex=3, pch=21, alpha=.6) +
     coord_fixed(ratio=1)
 
-  for(i in 1:10){
+  for(i in 1:3){
     boxplot(pc$x[,i] ~ train_set$y, main = paste("PC", i))
   }
-  
   rm(i)
 }
-rm(x)
 
 # plot the importance of the PC
 foo <- summary(pc)
@@ -367,7 +364,19 @@ library(matrixStats)
 x_centered <- sweep(train_set$x, 2, colMeans(train_set$x))
 x_scaled <- sweep(x_centered, 2, colSds(train_set$x), "/")
 
-if (SHOW_PLOTS) heatmap(x_scaled)
+if (SHOW_PLOTS) {
+  heatmap(x_scaled)
+
+  heatmap(x_scaled)
+
+  set.seed(1234, sample.kind="Rounding")
+  heatmap(train_set$x)
+  heatmap(
+    train_set$x,
+    distfun=function(x) as.dist(1-cor(t(x))),
+    hclustfun=function(x) hclust(x, method="ward.D2")
+  )  
+} 
 
 rm(d, h, k, x_centered, x_scaled)
 
@@ -537,13 +546,15 @@ train_rf <- train(
   train_set$x,
   factor(train_set$y),
   trControl = train_control,
-  tuneGrid = data.frame(mtry = seq(3,9,2)),
+  tuneGrid = data.frame(mtry = seq(3,7,2)),
   method = "rf"
 )
 end_time <- Sys.time()
 duration <- as.numeric(difftime(end_time, start_time, units="secs"))
 y_hat <- predict(train_rf, train_set$x)
 conf_matrix <- confusionMatrix(data=y_hat, reference=train_set$y)
+
+if(SHOW_PLOTS) plot(train_rf)
 
 models_results <- bind_rows(
   models_results,
